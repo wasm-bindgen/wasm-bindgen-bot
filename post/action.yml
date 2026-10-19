@@ -10,9 +10,10 @@ inputs:
     required: true
   approve:
     description: >-
-      Whose PRs the bot may approve: collaborators (maintain or admin role),
-      all, or never
-    default: collaborators
+      Whose PRs the bot may approve: all, collaborators (maintain or admin
+      role), or never. Approval never lands anything; merging still follows
+      the repository's own rules.
+    default: all
 
 runs:
   using: composite

@@ -18,10 +18,10 @@ Each run has two jobs:
   requires to resolve review threads), and never runs a model.
 
 A review is only posted if the PR head hasn't moved since it was analyzed, so
-runs superseded by a newer push never post. Approval is limited, by default,
-to PRs from collaborators, and when there is nothing to add the bot approves
-without a comment. Set the `post` action's `approve` input to `all` or `never` to
-change that.
+runs superseded by a newer push never post. The bot may approve any PR, which
+never lands anything by itself, and when there is nothing to add it approves
+without a comment. Set the `post` action's `approve` input to `collaborators` or `never`
+to restrict that.
 
 Collaborators are users with the maintain or admin role on the repository,
 which the org's `collaborators` team grants; the core team are the org owners
