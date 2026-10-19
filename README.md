@@ -17,8 +17,10 @@ Each run has two jobs:
   an app token scoped to issues, pull requests and contents (which GitHub
   requires to resolve review threads), and never runs a model.
 
-Approval is limited to the analyzed head commit and, by default, to PRs from
-collaborators. Set the `post` action's `approve` input to `all` or `never` to
+A review is only posted if the PR head hasn't moved since it was analyzed, so
+runs superseded by a newer push never post. Approval is limited, by default,
+to PRs from collaborators, and when there is nothing to add the bot approves
+without a comment. Set the `post` action's `approve` input to `all` or `never` to
 change that.
 
 Collaborators are users with the maintain or admin role on the repository,

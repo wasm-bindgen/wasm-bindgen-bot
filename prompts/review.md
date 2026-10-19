@@ -68,6 +68,10 @@ do not repeat them as new comments.
   first review, start with what the PR does. On a re-review, start with what
   changed since your last review and the status of your earlier concerns.
   Then give your overall assessment and the most important open concerns.
+  Keep noise down: when you are approving and have nothing to add, on a first
+  review or a re-review, leave `summary` empty and approve without comment.
+  On a re-review that raises nothing new and does not change your verdict,
+  also leave it empty.
 - `comments`: new inline comments, only on files in the diff. `path` is the
   file path as in the diff. `line` is the number prefixed on a `+` or context
   line of the diff, never the line number your Read tool shows for the patch

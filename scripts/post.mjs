@@ -60,12 +60,19 @@ if (result.mode === 'review') {
     });
   }
 
-  // An approval only covers the commit that was analyzed, and by default only
-  // collaborators' PRs, since PR content can steer the model.
+  // A newer push supersedes this run; its own run posts instead. This is
+  // checked last so a cancelled run that got this far doesn't post stale.
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (pr.state !== 'open' || pr.head.sha !== result.headSha) {
+    console.log(`Not posting: PR is ${pr.state} at ${pr.head.sha}, analyzed ${result.headSha}`);
+    process.exit(0);
+  }
+
+  // By default only collaborators' PRs may be approved, since PR content can
+  // steer the model.
   let event = 'COMMENT';
   const blockers = output.approve ? [] : [...output.approval_blockers];
   if (output.approve) {
-    const pr = await gh(`/repos/${repo}/pulls/${number}`);
     const policy = process.env.BOT_APPROVE;
     const allowed =
       policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login)));
@@ -75,26 +82,28 @@ if (result.mode === 'review') {
           ? 'Approvals are disabled for this repository.'
           : 'Approval is limited to PRs from collaborators; this review found no blocking concerns.'
       );
-    } else if (pr.head.sha !== result.headSha) {
-      blockers.push('New commits were pushed during this review.');
     } else {
       event = 'APPROVE';
     }
   }
   if (event !== 'APPROVE' && !blockers.length) blockers.push('No reason given.');
 
-  const body = clean(
+  // An empty summary means nothing to add: approve bare, or post nothing.
+  const silent = !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
+
+  // A silent approval the policy downgraded still says why it isn't approved.
+  const skip = silent && !output.approve;
+  const body = silent && event === 'APPROVE' ? '' : clean(
     output.summary +
-      (event === 'APPROVE' ? '' : `\n\n**Not approving:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+      (event === 'APPROVE' ? '' : `${output.summary.trim() ? '\n\n' : ''}**Not approving:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
       (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 
   const review = { commit_id: result.headSha, event, body, comments: inline };
-  const res = await gh(`/repos/${repo}/pulls/${number}/reviews`, {
-    method: 'POST',
-    body: review,
-    raw: true,
-  });
+  const res =
+    skip
+      ? { ok: true, status: 204 }
+      : await gh(`/repos/${repo}/pulls/${number}/reviews`, { method: 'POST', body: review, raw: true });
   if (res.status === 422 && inline.length) {
     console.log(`Inline comments rejected (${await res.text()}), posting them per file`);
     await gh(`/repos/${repo}/pulls/${number}/reviews`, {
@@ -158,7 +167,7 @@ if (result.mode === 'review') {
     );
     resolved++;
   }
-  summary(`Posted ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
+  summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
 } else {
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = output.labels.filter(l => existing.has(l)).slice(0, 6);
