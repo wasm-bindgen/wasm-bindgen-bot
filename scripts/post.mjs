@@ -215,6 +215,19 @@ if (result.mode === 'review') {
   summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
 } else if (result.mode === 'pr') {
   await postPr();
+} else if (result.mode === 'automerge') {
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
+    console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
+  } else {
+    await graphql(
+      `mutation($id: ID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId }
+      }`,
+      { id: pr.node_id }
+    );
+    summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
+  }
 } else if (result.mode === 'ask') {
   const answer = String(output.answer).trim();
   if (answer && result.threadId) {

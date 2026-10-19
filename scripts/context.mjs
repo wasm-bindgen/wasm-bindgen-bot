@@ -58,6 +58,22 @@ const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any' }
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
+// A collaborator's approval of a same-repo PR enables auto-merge. It needs no
+// model, so the result goes straight to the post job.
+if (name === 'pull_request_review') {
+  const { review, pull_request: pr } = event;
+  if (review.state !== 'approved') skip('not an approval');
+  if (isBot(review.user.login) || !(await isTrusted(review.user.login))) {
+    skip(`${review.user.login} is not a collaborator`);
+  }
+  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  writeFileSync(
+    join(dir, 'result.json'),
+    JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver: review.user.login })
+  );
+  process.exit(0);
+}
+
 let number;
 let isPr;
 let mode;

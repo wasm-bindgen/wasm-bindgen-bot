@@ -86,6 +86,11 @@ Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone
 else are left out.
 
+A collaborator's approval of a same-repo PR also enables squash auto-merge,
+unless the PR is a draft or labelled "do not land", so it lands once checks
+pass. Approvals by the bot itself never do. Auto-merge has to be allowed in
+the repository settings.
+
 All of them weigh the discussion by project role: core team members vote on
 direction and collaborators review, so their positions settle points over
 those of other participants.
@@ -117,6 +122,9 @@ on:
   # secrets.
   pull_request_review_comment:
     types: [created]
+  # Likewise same-repo only: a collaborator's approval enables auto-merge.
+  pull_request_review:
+    types: [submitted]
 
 permissions: {}
 
@@ -139,13 +147,17 @@ jobs:
         (github.event_name == 'pull_request_review_comment' &&
           github.event.pull_request.head.repo.full_name == github.repository)) &&
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot ') ||
-          startsWith(github.event.comment.body, '@wbg-bot ')))
+          startsWith(github.event.comment.body, '@wbg-bot '))) ||
+      (github.event_name == 'pull_request_review' &&
+        github.event.review.state == 'approved' &&
+        github.event.review.user.type != 'Bot' &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
-      # Comment runs start before the bot checks the commenter, so they get
-      # their own group rather than cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number }}${{ github.event.comment && format('-{0}', github.event.comment.id) || '' }}
+      # Comment and approval runs start before the bot checks who wrote them,
+      # so they get their own group rather than cancelling reviews in progress.
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || '' }}
       cancel-in-progress: true
     permissions:
       contents: read
