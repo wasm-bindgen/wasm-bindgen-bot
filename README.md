@@ -26,7 +26,7 @@ permission API, since `author_association` hides private org membership from
 Actions tokens.
 
 PR code is never built or executed, which is what makes `pull_request_target`
-safe for fork PRs.
+safe for fork PRs. Same-repo PRs use `pull_request` instead.
 
 ## Triggers
 
@@ -53,7 +53,12 @@ Create a `request-review` label, then add `.github/workflows/bot.yml`:
 ```yaml
 name: wasm-bindgen-bot
 
+# Same-repo PRs use pull_request, since their authors already have write
+# access. Fork PRs use pull_request_target, which is safe because the bot only
+# reads PR content and never runs it.
 on:
+  pull_request:
+    types: [opened, ready_for_review, synchronize, labeled]
   pull_request_target:
     types: [opened, ready_for_review, synchronize, labeled]
   issues:
@@ -65,12 +70,16 @@ permissions: {}
 
 jobs:
   analyze:
+    # Pushes to PRs by non-collaborators and commands from non-collaborators
+    # are skipped by the analyze action, which checks repository roles.
     if: >-
-      (github.event_name == 'pull_request_target' && (
+      (((github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository) ||
+        (github.event_name == 'pull_request_target' &&
+          github.event.pull_request.head.repo.full_name != github.repository)) && (
         (github.event.action == 'labeled' && github.event.label.name == 'request-review') ||
-        (!github.event.pull_request.draft && github.event.pull_request.user.type != 'Bot' && (
-          github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
-          github.event.action == 'synchronize')))) ||
+        (github.event.action != 'labeled' && !github.event.pull_request.draft &&
+          github.event.pull_request.user.type != 'Bot'))) ||
       (github.event_name == 'issues' && github.event.issue.user.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot review') ||
