@@ -1,7 +1,9 @@
 name: wasm-bindgen-bot analyze
 description: >-
-  Runs Claude Code read-only over a PR or issue and uploads its structured
-  result. Holds the AI Gateway token but no GitHub write access.
+  Runs Claude Code over a PR or issue and uploads its structured result.
+  Reviews and triage are read-only; investigations and PRs run code in a
+  sandbox user that can't reach the tokens. Holds the AI Gateway token but no
+  GitHub write access.
 
 inputs:
   cf-aig-token:
@@ -17,12 +19,25 @@ inputs:
     default: claude-opus-5-5
   triage-model:
     default: claude-sonnet-5-5
+  investigate-model:
+    default: claude-opus-5-5
+  pr-model:
+    default: claude-opus-5-5
   review-effort:
     default: high
   triage-effort:
     default: medium
+  investigate-effort:
+    default: high
+  pr-effort:
+    default: high
   max-budget-usd:
+    description: Budget for reviews and triage
     default: '5'
+  investigate-budget-usd:
+    default: '10'
+  pr-budget-usd:
+    default: '20'
   claude-code-version:
     default: 2.1.303
   github-token:
@@ -44,7 +59,8 @@ runs:
         ref: ${{ steps.ctx.outputs.checkout-ref }}
         path: bot-work/repo
         persist-credentials: false
-        # Fork PR code is only read by the model, never built or executed.
+        # Fork PR code is only read by the model, never built or executed;
+        # only issue modes run code, against the default branch.
         allow-unsafe-pr-checkout: true
 
     - if: steps.ctx.outputs.mode
@@ -55,10 +71,18 @@ runs:
       shell: bash
       env:
         BOT_DIR: ${{ github.workspace }}/bot-work
-        BOT_MODE: ${{ steps.ctx.outputs.mode }}
-        BOT_MODEL: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-model || inputs.triage-model }}
-        BOT_EFFORT: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-effort || inputs.triage-effort }}
-        BOT_BUDGET: ${{ inputs.max-budget-usd }}
+        BOT_REVIEW_MODEL: ${{ inputs.review-model }}
+        BOT_REVIEW_EFFORT: ${{ inputs.review-effort }}
+        BOT_REVIEW_BUDGET: ${{ inputs.max-budget-usd }}
+        BOT_TRIAGE_MODEL: ${{ inputs.triage-model }}
+        BOT_TRIAGE_EFFORT: ${{ inputs.triage-effort }}
+        BOT_TRIAGE_BUDGET: ${{ inputs.max-budget-usd }}
+        BOT_INVESTIGATE_MODEL: ${{ inputs.investigate-model }}
+        BOT_INVESTIGATE_EFFORT: ${{ inputs.investigate-effort }}
+        BOT_INVESTIGATE_BUDGET: ${{ inputs.investigate-budget-usd }}
+        BOT_PR_MODEL: ${{ inputs.pr-model }}
+        BOT_PR_EFFORT: ${{ inputs.pr-effort }}
+        BOT_PR_BUDGET: ${{ inputs.pr-budget-usd }}
         BOT_GH_TOKEN: ${{ inputs.github-token }}
         CF_AIG_TOKEN: ${{ inputs.cf-aig-token }}
         CF_ACCOUNT_ID: ${{ inputs.cf-account-id }}

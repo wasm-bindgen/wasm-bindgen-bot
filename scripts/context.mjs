@@ -48,35 +48,45 @@ function skip(reason) {
   process.exit(0);
 }
 
+// Every command is either `@wbg-bot <verb>` in a comment or the `bot-<verb>`
+// label, from a collaborator, and applies to either PRs or issues.
+const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'issue' };
+const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
+
 let number;
-let request = '';
 let isPr;
-if (name === 'pull_request' || name === 'pull_request_target') {
-  if (event.action === 'labeled' && event.label.name !== 'bot-request-review') {
-    skip(`label ${event.label.name} does not request review`);
+let mode;
+let requester;
+let label;
+let request = '';
+if (name === 'pull_request' || name === 'pull_request_target' || name === 'issues') {
+  isPr = name !== 'issues';
+  number = (isPr ? event.pull_request : event.issue).number;
+  if (event.action === 'labeled') {
+    label = event.label.name;
+    mode = LEGACY_LABELS[label] ?? (label.startsWith('bot-') ? label.slice(4) : null);
+    if (!Object.hasOwn(VERBS, mode)) skip(`label ${label} is not a bot command`);
+    requester = event.sender.login;
+  } else {
+    mode = isPr ? 'review' : 'triage';
   }
-  number = event.pull_request.number;
-  isPr = true;
-} else if (name === 'issues') {
-  if (event.action === 'labeled' && event.label.name !== 'bot-issue-triage') {
-    skip(`label ${event.label.name} does not request triage`);
-  }
-  number = event.issue.number;
-  isPr = false;
 } else if (name === 'issue_comment') {
   const { body, user } = event.comment;
-  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+(review|triage)\b([\s\S]*)$/.exec(body.trim());
+  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+([a-z-]+)\b([\s\S]*)$/.exec(body.trim());
   if (!m) skip('comment is not a bot command');
-  if (!(await isTrusted(user.login))) skip(`${user.login} is not a collaborator`);
+  mode = m[1];
+  if (!Object.hasOwn(VERBS, mode)) skip(`unknown command ${mode}`);
+  requester = user.login;
   number = event.issue.number;
   isPr = !!event.issue.pull_request;
-  if ((m[1] === 'review') !== isPr) skip(`${m[1]} does not apply here`);
   request = `${user.login}: ${m[2].trim()}`;
 } else {
   skip(`unsupported event ${name}`);
 }
+if ((VERBS[mode] === 'pr') !== isPr) skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
+if (requester && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
-const meta = { repo, number, mode: isPr ? 'review' : 'triage' };
+const meta = { repo, number, mode, requester, label };
 if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
 
 if (isPr) {
@@ -178,6 +188,7 @@ if (isPr) {
   );
 
   const { default_branch } = await gh(`/repos/${repo}`);
+  meta.baseRef = default_branch;
   await writeGuide(default_branch);
   setOutput('checkout-ref', default_branch);
 }

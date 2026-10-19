@@ -24,6 +24,14 @@ const clean = (s, max = MAX_BODY) =>
     .join('')
     .slice(0, max);
 
+async function unlabel(label) {
+  const res = await gh(`/repos/${repo}/issues/${number}/labels/${encodeURIComponent(label)}`, {
+    method: 'DELETE',
+    raw: true,
+  });
+  if (!res.ok && res.status !== 404) console.log(`Removing ${label}: ${res.status} ${await res.text()}`);
+}
+
 if (result.mode === 'review') {
   const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
   const lines = new Map(files.map(f => [f.filename, commentableLines(f.patch)]));
@@ -122,13 +130,7 @@ if (result.mode === 'review') {
     });
   }
 
-  const unlabel = await gh(`/repos/${repo}/issues/${number}/labels/bot-request-review`, {
-    method: 'DELETE',
-    raw: true,
-  });
-  if (!unlabel.ok && unlabel.status !== 404) {
-    console.log(`Removing bot-request-review label: ${unlabel.status} ${await unlabel.text()}`);
-  }
+  if (result.label) await unlabel(result.label);
 
   // Only the bot's own open threads may be resolved.
   const threads = new Map((await reviewThreads(number)).map(t => [t.id, t]));
@@ -168,24 +170,24 @@ if (result.mode === 'review') {
     resolved++;
   }
   summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
+} else if (result.mode === 'pr') {
+  await postPr();
 } else {
   // Labels the bot controls itself are only set from their dedicated fields.
-  const CONTROLLED = ['ready-for-pr', 'bot-issue-triage', 'bot-request-review'];
+  const controlled = l => l === 'ready-for-pr' || l.startsWith('bot-');
   const dup = Number.isInteger(output.duplicate_of) && output.duplicate_of !== number ? output.duplicate_of : null;
   const close = output.close === 'duplicate' && !dup ? null : output.close;
   if (close) output.ready_for_pr = false;
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
-  const labels = output.labels.filter(l => existing.has(l) && !CONTROLLED.includes(l)).slice(0, 6);
+  const labels = output.labels.filter(l => existing.has(l) && !controlled(l)).slice(0, 6);
   const dropped = output.labels.filter(l => !labels.includes(l));
   if (dropped.length) console.log(`Dropped labels: ${dropped.join(', ')}`);
   if (output.ready_for_pr) labels.push('ready-for-pr');
   if (labels.length) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels } });
   }
-  for (const label of [...(output.ready_for_pr ? [] : ['ready-for-pr']), 'bot-issue-triage']) {
-    const res = await gh(`/repos/${repo}/issues/${number}/labels/${label}`, { method: 'DELETE', raw: true });
-    if (!res.ok && res.status !== 404) console.log(`Removing ${label}: ${res.status} ${await res.text()}`);
-  }
+  if (!output.ready_for_pr) await unlabel('ready-for-pr');
+  if (result.label) await unlabel(result.label);
 
   let comment = output.comment?.trim() || '';
   if (dup && !comment.includes(`#${dup}`)) {
@@ -211,5 +213,72 @@ if (result.mode === 'review') {
       closed = true;
     }
   }
-  summary(`Triaged #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
+  summary(`${result.mode === 'investigate' ? `Investigated (${output.reproduced})` : 'Triaged'} #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
+}
+
+// Commits the files the model changed onto the base commit through the Git
+// Data API, pushes them to a new branch and opens a PR for the issue.
+async function postPr() {
+  if (result.label) await unlabel(result.label);
+  const issue = await gh(`/repos/${repo}/issues/${number}`);
+  if (issue.state !== 'open') {
+    console.log('Issue was closed, not opening a PR');
+    return;
+  }
+  const comment = output.comment?.trim();
+  if (!result.files?.length) {
+    if (comment) {
+      await gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(comment) } });
+    }
+    summary(`No changes for #${number}${comment ? ', commented' : ''}`);
+    return;
+  }
+
+  const base = await gh(`/repos/${repo}/git/commits/${result.baseSha}`);
+  const tree = [];
+  for (const f of result.files) {
+    if (f.deleted) {
+      tree.push({ path: f.path, mode: '100644', type: 'blob', sha: null });
+      continue;
+    }
+    const blob = await gh(`/repos/${repo}/git/blobs`, {
+      method: 'POST',
+      body: { content: f.content, encoding: 'base64' },
+    });
+    tree.push({ path: f.path, mode: f.mode, type: 'blob', sha: blob.sha });
+  }
+  const newTree = await gh(`/repos/${repo}/git/trees`, {
+    method: 'POST',
+    body: { base_tree: base.tree.sha, tree },
+  });
+  const title = String(output.title).trim().slice(0, 200);
+  const commit = await gh(`/repos/${repo}/git/commits`, {
+    method: 'POST',
+    body: { message: `${title}\n\nCloses #${number}`, tree: newTree.sha, parents: [result.baseSha] },
+  });
+
+  let branch = `wbg-bot/issue-${number}`;
+  let ref = await gh(`/repos/${repo}/git/refs`, {
+    method: 'POST',
+    raw: true,
+    body: { ref: `refs/heads/${branch}`, sha: commit.sha },
+  });
+  if (ref.status === 422) {
+    branch += `-${commit.sha.slice(0, 7)}`;
+    ref = await gh(`/repos/${repo}/git/refs`, {
+      method: 'POST',
+      raw: true,
+      body: { ref: `refs/heads/${branch}`, sha: commit.sha },
+    });
+  }
+  if (!ref.ok) throw new Error(`creating ${branch}: ${ref.status} ${await ref.text()}`);
+
+  let body = String(output.body).trim();
+  if (!new RegExp(`#${number}\\b`).test(body)) body += `\n\nCloses #${number}`;
+  body += `\n\n_Requested by ${result.requester}._`;
+  const pr = await gh(`/repos/${repo}/pulls`, {
+    method: 'POST',
+    body: { title, head: branch, base: result.baseRef, body: clean(body) },
+  });
+  summary(`Opened ${pr.html_url} for #${number} with ${result.files.length} files`);
 }

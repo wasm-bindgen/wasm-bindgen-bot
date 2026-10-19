@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "PR title"
+    },
+    "body": {
+      "type": "string",
+      "description": "PR description in GitHub markdown"
+    },
+    "comment": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Comment for the issue when you made no changes, explaining why; otherwise null"
+    }
+  },
+  "required": [
+    "title",
+    "body",
+    "comment"
+  ],
+  "additionalProperties": false
+}

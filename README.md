@@ -1,19 +1,24 @@
 # wasm-bindgen-bot
 
-Automated PR review and issue triage for repositories in the
+Automated PR review, issue triage, bug reproduction and PRs for repositories in the
 [wasm-bindgen](https://github.com/wasm-bindgen) organization, run by Claude
 Code through Cloudflare AI Gateway.
 
 Each run has two jobs:
 
-- **analyze** collects the PR or issue into files, then runs Claude Code with
-  only `Read`, `Grep` and `Glob` confined to that directory, plus a GET-only
-  GitHub API tool for public data, in `--bare` mode so nothing in the
-  checkout can configure it. It holds the AI Gateway token and a
-  read-only `GITHUB_TOKEN`, and uploads the model's structured output.
+- **analyze** collects the PR or issue into files, then runs Claude Code in
+  `--bare` mode, so nothing in the checkout can configure it, with a GET-only
+  GitHub API tool for public data. For reviews and triage it only has `Read`,
+  `Grep` and `Glob` confined to that directory. Investigations and PRs also
+  get `Bash`, `Edit` and `Write`, and run as an unprivileged sandbox user
+  with no sudo. The AI Gateway token and the read-only `GITHUB_TOKEN` stay in
+  helper processes that the sandbox user can't inspect, which add the tokens
+  to its requests on localhost. It uploads the model's structured output, plus
+  the changed files for a PR.
 - **post** validates that output and posts it as the `wasm-bindgen-bot` app: a
-  single review anchored to diff lines, or existing labels and a comment on an
-  issue. Reviews are comments or approvals, never change requests. It holds
+  single review anchored to diff lines, existing labels and a comment on an
+  issue, or a branch and PR built from the changed files through the Git
+  Data API. Reviews are comments or approvals, never change requests. It holds
   an app token scoped to issues, pull requests and contents (which GitHub
   requires to resolve review threads), and never runs a model.
 
@@ -32,37 +37,45 @@ permission API, since `author_association` hides private org membership from
 Actions tokens.
 
 PR code is never built or executed, which is what makes `pull_request_target`
-safe for fork PRs. Same-repo PRs use `pull_request` instead.
+safe for fork PRs. Same-repo PRs use `pull_request` instead. Only
+investigations and PRs run code, from the default branch and the issue, and
+only at a collaborator's request. Branch protection on the default branch is
+what guards the app's write access.
 
-## Triggers
+## Commands
 
-- PRs: on open and ready for review, skipping drafts and bots. PRs from
-  collaborators are also re-reviewed on every push.
-- Adding the `bot-request-review` label to a PR runs a review, and the bot
-  removes the label afterwards. Use it to re-review third-party PRs.
-- Later reviews are re-reviews: the model sees its previous review, the
-  changes since, and the review threads, and resolves its own threads once
-  they are addressed. Points settled by collaborators or core team members
-  are treated as decided, weighed by role as in triage.
-- Issues: on open, and when the `bot-issue-triage` label is added, which the
-  bot removes afterwards. Triage weighs comments by project role (core team
-  members vote on direction, collaborators review), and adds `ready-for-pr`
-  when the issue has a clear goal and a settled, well-defined design space,
-  forming a queue for automated PRs. Otherwise it removes `ready-for-pr` and
-  comments on what remains unresolved. It closes issues, with a short
-  comment, that are confirmed fixed, duplicates, or clearly spam or off
-  topic.
-- Collaborators can also comment
-  `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
-  issue to rerun it, or use the shorter `@wbg-bot` alias. Text after the command is passed to the model as a
-  request, for example `@wasm-bindgen-bot review focus on the unsafe blocks`.
+Collaborators run each command by commenting `@wbg-bot <command>` (or
+`@wasm-bindgen-bot <command>`) or by adding the `bot-<command>` label, which
+the bot removes afterwards. Text after a comment command is passed to the
+model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
+
+- `review` (PRs): runs on open and ready for review, skipping drafts and
+  bots, and on every push to collaborators' PRs. Use the command to review
+  third-party PRs again. Later reviews are re-reviews: the model sees its
+  previous review, the changes since and the review threads, and resolves
+  its own threads once they are addressed.
+- `triage` (issues): runs on every new issue. Adds labels, and
+  `ready-for-pr` when the issue has a clear goal and a settled, well-defined
+  design space; otherwise it removes `ready-for-pr` and comments on what
+  remains unresolved. Closes issues, with a short comment, that are confirmed
+  fixed, duplicates, or clearly spam or off topic.
+- `investigate` (issues): clones the repository and tries to reproduce the
+  issue, then comments with a minimal reproduction or what it tried, and
+  triages as above.
+- `pr` (issues): implements the issue, or the request in the comment, builds
+  and tests it, and opens a PR from a `wbg-bot/issue-<n>` branch. Changes to
+  workflows are dropped, since the app can't push them.
+
+All of them weigh the discussion by project role: core team members vote on
+direction and collaborators review, so their positions settle points over
+those of other participants.
 
 ## Setup
 
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create `bot-request-review`, `bot-issue-triage` and `ready-for-pr` labels,
+Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr` and `ready-for-pr` labels,
 then add `.github/workflows/bot.yml`:
 
 ```yaml
@@ -102,7 +115,7 @@ jobs:
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot ') ||
           startsWith(github.event.comment.body, '@wbg-bot ')))
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 100
     concurrency:
       # Comment runs start before the bot checks the commenter, so they get
       # their own group rather than cancelling reviews in progress.

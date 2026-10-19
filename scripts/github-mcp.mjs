@@ -1,6 +1,7 @@
 // A minimal stdio MCP server giving the model read-only access to public data
 // through the GitHub REST API. Only GET requests are made, and the token stays
 // in this process.
+import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 
 const API = process.env.GITHUB_API_URL || 'https://api.github.com';
@@ -40,12 +41,8 @@ async function get({ path, raw }) {
   return { text: `${res.status}\n${text}`, isError: !res.ok };
 }
 
-const send = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
-
-for await (const line of createInterface({ input: process.stdin })) {
-  if (!line.trim()) continue;
-  const { id, method, params } = JSON.parse(line);
-  if (id === undefined) continue;
+async function handle({ id, method, params }) {
+  if (id === undefined) return null;
   try {
     let result;
     if (method === 'initialize') {
@@ -62,11 +59,43 @@ for await (const line of createInterface({ input: process.stdin })) {
     } else if (method === 'ping') {
       result = {};
     } else {
-      send({ id, error: { code: -32601, message: `unsupported: ${method}` } });
-      continue;
+      return { jsonrpc: '2.0', id, error: { code: -32601, message: `unsupported: ${method}` } };
     }
-    send({ id, result });
+    return { jsonrpc: '2.0', id, result };
   } catch (e) {
-    send({ id, result: { content: [{ type: 'text', text: e.message }], isError: true } });
+    return { jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: e.message }], isError: true } };
+  }
+}
+
+// With --http it serves MCP over HTTP on localhost instead of stdio, so the
+// token can stay in a process the sandboxed model can't inspect. It prints
+// its port once listening.
+if (process.argv.includes('--http')) {
+  const server = createServer(async (req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405).end();
+      return;
+    }
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    let reply;
+    try {
+      reply = await handle(JSON.parse(body));
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    if (!reply) {
+      res.writeHead(202).end();
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(reply));
+  });
+  server.listen(0, '127.0.0.1', () => console.log(server.address().port));
+} else {
+  for await (const line of createInterface({ input: process.stdin })) {
+    if (!line.trim()) continue;
+    const reply = await handle(JSON.parse(line));
+    if (reply) process.stdout.write(JSON.stringify(reply) + '\n');
   }
 }
