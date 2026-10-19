@@ -72,7 +72,7 @@ jobs:
       issues: read
       pull-requests: read
     steps:
-      - uses: wasm-bindgen/wasm-bindgen-bot/analyze@<sha>
+      - uses: wasm-bindgen/wasm-bindgen-bot/analyze@main
         with:
           cf-aig-token: ${{ secrets.CF_AIG_TOKEN }}
           cf-account-id: ${{ vars.CF_ACCOUNT_ID }}
@@ -83,11 +83,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - uses: wasm-bindgen/wasm-bindgen-bot/post@<sha>
+      - uses: wasm-bindgen/wasm-bindgen-bot/post@main
         with:
           app-id: ${{ vars.WASM_BINDGEN_BOT_APP_ID }}
           private-key: ${{ secrets.WASM_BINDGEN_BOT_PRIVATE_KEY }}
 ```
+
+Callers track `main`, so changes here roll out to every repository at once.
 
 Optionally add `.github/bot.md` describing the repository's layout and review
 conventions. It is read from the base branch and included in the prompt.
