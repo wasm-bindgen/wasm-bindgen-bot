@@ -40,6 +40,9 @@ Look for, in priority order:
 5. Clearly simpler or more idiomatic approaches, only when the difference is
    substantial.
 
+Callers deliberately use the `wasm-bindgen-bot` actions at `@main`, since the
+same team maintains them; do not suggest pinning them.
+
 Do not comment on formatting, naming preferences or minor style. Do not repeat
 points already made in review threads. Every comment must be specific and
 actionable; fewer, high-confidence comments are better than many speculative

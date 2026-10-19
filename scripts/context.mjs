@@ -26,6 +26,17 @@ function toDiff(files) {
     : diff;
 }
 
+// The repository's AGENTS.md, plus optional bot-only notes, read from the base
+// branch so a PR can't rewrite its own review instructions.
+async function writeGuide(ref) {
+  const parts = [];
+  for (const path of ['AGENTS.md', '.github/bot.md']) {
+    const text = await fileAt(path, ref);
+    if (text) parts.push(`### ${path}\n\n${text.trim()}`);
+  }
+  if (parts.length) writeFileSync(join(dir, 'guide.md'), parts.join('\n\n') + '\n');
+}
+
 function skip(reason) {
   console.log(`Skipping: ${reason}`);
   writeFileSync(join(dir, 'result.json'), JSON.stringify({ skip: reason }));
@@ -117,8 +128,7 @@ if (isPr) {
     );
   }
 
-  const guide = await fileAt('.github/bot.md', pr.base.sha);
-  if (guide) writeFileSync(join(dir, 'guide.md'), guide);
+  await writeGuide(pr.base.sha);
   setOutput('checkout-ref', pr.head.sha);
 } else {
   const issue = await gh(`/repos/${repo}/issues/${number}`);
@@ -151,8 +161,7 @@ if (isPr) {
   );
 
   const { default_branch } = await gh(`/repos/${repo}`);
-  const guide = await fileAt('.github/bot.md', default_branch);
-  if (guide) writeFileSync(join(dir, 'guide.md'), guide);
+  await writeGuide(default_branch);
   setOutput('checkout-ref', default_branch);
 }
 

@@ -116,8 +116,9 @@ jobs:
 
 Callers track `main`, so changes here roll out to every repository at once.
 
-Optionally add `.github/bot.md` describing the repository's layout and review
-conventions. It is read from the base branch and included in the prompt.
+The repository's `AGENTS.md`, describing its layout and conventions, is read
+from the base branch and included in the prompt. Notes meant only for the bot
+can go in an optional `.github/bot.md`.
 
 `analyze` also accepts `review-model`, `triage-model`, `review-effort`,
 `triage-effort`, `max-budget-usd` and `claude-code-version` inputs.

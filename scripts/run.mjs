@@ -15,7 +15,7 @@ let prompt = readFileSync(join(root, 'prompts', `${meta.mode}.md`), 'utf8')
   .replaceAll('{{repo}}', meta.repo)
   .replaceAll('{{number}}', String(meta.number));
 const guide = read(join(dir, 'guide.md'));
-if (guide) prompt += `\n\n## Repository guide (from maintainers)\n\n${guide}\n`;
+if (guide) prompt += `\n\n## Repository guide (from the base branch)\n\n${guide}\n`;
 const request = read(join(dir, 'request.md'));
 if (request) prompt += `\n\n## Maintainer request\n\n${request}\n`;
 
