@@ -57,6 +57,7 @@ runs:
         BOT_MODEL: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-model || inputs.triage-model }}
         BOT_EFFORT: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-effort || inputs.triage-effort }}
         BOT_BUDGET: ${{ inputs.max-budget-usd }}
+        BOT_GH_TOKEN: ${{ inputs.github-token }}
         CF_AIG_TOKEN: ${{ inputs.cf-aig-token }}
         CF_ACCOUNT_ID: ${{ inputs.cf-account-id }}
         CF_GATEWAY_ID: ${{ inputs.cf-gateway-id }}

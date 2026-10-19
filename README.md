@@ -7,8 +7,9 @@ Code through Cloudflare AI Gateway.
 Each run has two jobs:
 
 - **analyze** collects the PR or issue into files, then runs Claude Code with
-  only `Read`, `Grep` and `Glob` confined to that directory, in `--bare` mode so
-  nothing in the checkout can configure it. It holds the AI Gateway token and a
+  only `Read`, `Grep` and `Glob` confined to that directory, plus a GET-only
+  GitHub API tool for public data, in `--bare` mode so nothing in the
+  checkout can configure it. It holds the AI Gateway token and a
   read-only `GITHUB_TOKEN`, and uploads the model's structured output.
 - **post** validates that output and posts it as the `wasm-bindgen-bot` app: a
   single review anchored to diff lines, or existing labels and a comment on an

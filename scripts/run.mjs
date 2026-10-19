@@ -21,15 +21,37 @@ if (request) prompt += `\n\n## Maintainer request\n\n${request}\n`;
 
 const schema = readFileSync(join(root, 'schemas', `${meta.mode}.json`), 'utf8');
 
-// The model only gets read tools confined to its cwd, and the environment is
-// rebuilt from scratch so no GitHub or runner tokens reach it. --bare skips
-// hooks and settings, which the PR checkout could otherwise supply.
+// The GitHub tool's config holds the read-only token, so it lives outside the
+// model's working directory.
+const ghToken = process.env.BOT_GH_TOKEN;
+const mcpConfig = join(mkdtempSync(join(tmpdir(), 'bot-mcp-')), 'mcp.json');
+writeFileSync(
+  mcpConfig,
+  JSON.stringify({
+    mcpServers: {
+      github: {
+        type: 'stdio',
+        command: process.execPath,
+        args: [join(root, 'scripts', 'github-mcp.mjs')],
+        env: { GH_TOKEN: ghToken },
+      },
+    },
+  })
+);
+const redact = s => String(s).split(token).join('***').split(ghToken).join('***');
+
+// The model only gets read tools confined to its cwd plus read-only GitHub
+// access, and the environment is rebuilt from scratch so no tokens reach it.
+// --bare skips hooks and settings, which the PR checkout could otherwise
+// supply.
 const proc = spawnSync(
   'claude',
   [
     '-p', prompt,
     '--bare',
     '--strict-mcp-config',
+    '--mcp-config', mcpConfig,
+    '--allowedTools', 'mcp__github__get',
     '--no-session-persistence',
     '--tools', 'Read,Grep,Glob',
     '--permission-mode', 'dontAsk',
@@ -60,7 +82,7 @@ try {
   out = JSON.parse(proc.stdout);
   if (Array.isArray(out)) out = out.findLast(m => m.type === 'result');
 } catch {
-  console.error(proc.stderr?.split(token).join('***'));
+  console.error(redact(proc.stderr));
   throw new Error(`claude exited ${proc.status}${proc.error ? `: ${proc.error.message}` : ''}`);
 }
 
@@ -71,9 +93,9 @@ if (out.permission_denials?.length) {
 }
 summary(`**${meta.mode}** of #${meta.number}: ${out.subtype}, ${out.num_turns} turns, $${cost}`);
 if (out.is_error || !out.structured_output) {
-  throw new Error(`no structured output: ${String(out.result).split(token).join('***')}`);
+  throw new Error(`no structured output: ${redact(out.result)}`);
 }
 
 const result = JSON.stringify({ ...meta, output: out.structured_output });
-if (result.includes(token)) throw new Error('output contains the gateway token');
+if (result.includes(token) || result.includes(ghToken)) throw new Error('output contains a token');
 writeFileSync(join(dir, 'result.json'), result);
