@@ -25,13 +25,23 @@
     "ready_for_pr": {
       "type": "boolean",
       "description": "The issue is settled and clear enough to queue for an automated PR"
+    },
+    "close": {
+      "enum": [
+        "resolved",
+        "duplicate",
+        "off_topic",
+        null
+      ],
+      "description": "Close the issue for this reason, or null to leave it open"
     }
   },
   "required": [
     "labels",
     "duplicate_of",
     "comment",
-    "ready_for_pr"
+    "ready_for_pr",
+    "close"
   ],
   "additionalProperties": false
 }

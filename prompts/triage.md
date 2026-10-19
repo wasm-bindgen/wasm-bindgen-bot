@@ -62,6 +62,19 @@ behaviour is real and still present.
     fixed; for a feature, that it is not already supported.
 
   When in doubt, leave it false.
+- `close`: close the issue, only when one of these clearly holds and no
+  collaborator or core member wants it kept open:
+  - `resolved`: you confirmed in `repo/` that a merged change fixes the bug or
+    adds the requested feature;
+  - `duplicate`: `duplicate_of` is set and that issue covers the same problem;
+  - `off_topic`: the issue is clearly spam, or not about this project at all.
+
+  Otherwise null. Do not close for being stale, unclear, missing a
+  reproduction, or a request you think the project should decline; those are
+  maintainer decisions. A comment is required when closing: say briefly and
+  politely why, such as "Fixed by #123, which adds `--flag`.", and invite the
+  reporter to reopen if it isn't resolved for them. For spam, one neutral
+  sentence is enough.
 - `comment`: null unless it adds real value. Write one when:
   - a bug report lacks what is needed to reproduce it (versions, a minimal
     example, the exact error), and ask for exactly what is missing;
@@ -79,4 +92,5 @@ Give file paths relative to the repository root, without the `repo/` prefix.
 Keep comments short, friendly and concrete. Do not thank the reporter
 generically, restate the issue, promise fixes or timelines, speculate about
 priority, or ask the reporter to submit a PR. Do not repeat what an earlier
-comment of yours already says. Do not use headings.
+comment of yours or a participant's already says; if someone has already
+pointed to the fix, confirm it and close rather than restating it. Do not use headings.

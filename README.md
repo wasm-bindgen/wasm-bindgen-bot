@@ -42,13 +42,16 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
   removes the label afterwards. Use it to re-review third-party PRs.
 - Later reviews are re-reviews: the model sees its previous review, the
   changes since, and the review threads, and resolves its own threads once
-  they are addressed.
+  they are addressed. Points settled by collaborators or core team members
+  are treated as decided, weighed by role as in triage.
 - Issues: on open, and when the `bot-issue-triage` label is added, which the
   bot removes afterwards. Triage weighs comments by project role (core team
   members vote on direction, collaborators review), and adds `ready-for-pr`
   when the issue has a clear goal and a settled, well-defined design space,
   forming a queue for automated PRs. Otherwise it removes `ready-for-pr` and
-  comments on what remains unresolved.
+  comments on what remains unresolved. It closes issues, with a short
+  comment, that are confirmed fixed, duplicates, or clearly spam or off
+  topic.
 - Collaborators can also comment
   `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
   issue to rerun it. Text after the command is passed to the model as a

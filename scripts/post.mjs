@@ -171,6 +171,9 @@ if (result.mode === 'review') {
 } else {
   // Labels the bot controls itself are only set from their dedicated fields.
   const CONTROLLED = ['ready-for-pr', 'bot-issue-triage', 'bot-request-review'];
+  const dup = Number.isInteger(output.duplicate_of) && output.duplicate_of !== number ? output.duplicate_of : null;
+  const close = output.close === 'duplicate' && !dup ? null : output.close;
+  if (close) output.ready_for_pr = false;
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = output.labels.filter(l => existing.has(l) && !CONTROLLED.includes(l)).slice(0, 6);
   const dropped = output.labels.filter(l => !labels.includes(l));
@@ -185,8 +188,7 @@ if (result.mode === 'review') {
   }
 
   let comment = output.comment?.trim() || '';
-  const dup = output.duplicate_of;
-  if (Number.isInteger(dup) && dup !== number && !comment.includes(`#${dup}`)) {
+  if (dup && !comment.includes(`#${dup}`)) {
     comment = `This looks like a duplicate of #${dup}.${comment ? `\n\n${comment}` : ''}`;
   }
   if (comment) {
@@ -195,5 +197,19 @@ if (result.mode === 'review') {
       body: { body: clean(comment) },
     });
   }
-  summary(`Triaged #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}`);
+  // Closing is only explained by the comment, so never close silently.
+  let closed = false;
+  if (close && comment) {
+    const issue = await gh(`/repos/${repo}/issues/${number}`);
+    if (issue.state === 'open') {
+      const reason = { resolved: 'completed', duplicate: 'duplicate', off_topic: 'not_planned' }[close];
+      const patch = state_reason =>
+        gh(`/repos/${repo}/issues/${number}`, { method: 'PATCH', raw: true, body: { state: 'closed', state_reason } });
+      let res = await patch(reason);
+      if (res.status === 422) res = await patch('not_planned');
+      if (!res.ok) throw new Error(`closing #${number}: ${res.status} ${await res.text()}`);
+      closed = true;
+    }
+  }
+  summary(`Triaged #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
 }
