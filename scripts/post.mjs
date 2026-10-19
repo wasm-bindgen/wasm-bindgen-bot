@@ -124,6 +124,23 @@ if (result.mode === 'review') {
   // Only the bot's own open threads may be resolved.
   const threads = new Map((await reviewThreads(number)).map(t => [t.id, t]));
   let resolved = 0;
+  // Finish threads a previous run replied to but failed to resolve.
+  for (const t of threads.values()) {
+    const last = t.comments.nodes.at(-1);
+    if (
+      !t.isResolved &&
+      isBot(t.comments.nodes[0]?.author?.login) &&
+      isBot(last?.author?.login) &&
+      last.body.startsWith('Addressed in ')
+    ) {
+      await graphql(
+        `mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { clientMutationId } }`,
+        { id: t.id }
+      );
+      t.isResolved = true;
+      resolved++;
+    }
+  }
   for (const { thread_id, reason } of output.resolve.slice(0, MAX_COMMENTS)) {
     const t = threads.get(thread_id);
     if (!t || t.isResolved || !isBot(t.comments.nodes[0]?.author?.login)) {
