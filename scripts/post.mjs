@@ -315,8 +315,7 @@ const comment = body =>
   gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(body) } });
 
 // Opens a PR for an issue, or adds a commit to one of the bot's own PRs. Bot
-// PRs are locked so only collaborators can comment on them, and are then
-// reviewed by the bot, which can send them back with `bot-pr`.
+// PRs are then reviewed by the bot, which can send them back with `bot-pr`.
 async function postPr() {
   if (result.label) await unlabel(result.label);
   if (result.headRef) return updatePr();
@@ -360,7 +359,6 @@ async function postPr() {
     method: 'POST',
     body: { title, head: branch, base: result.baseRef, body: clean(body) },
   });
-  await gh(`/repos/${repo}/issues/${pr.number}/lock`, { method: 'PUT', body: { lock_reason: 'resolved' } });
   await gh(`/repos/${repo}/issues/${pr.number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
   summary(`Opened ${pr.html_url} for #${number} with ${result.files.length} files`);
 }

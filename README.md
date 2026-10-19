@@ -75,8 +75,9 @@ PR, it answers in the thread.
   threads it handled. Changes to workflows are dropped, since the app can't
   push them.
 
-Bot PRs are locked as resolved, so only collaborators can comment on them,
-and the bot reviews each one after every push. While it has concerns it adds
+Anyone can comment on bot PRs, but the runs that review and update them only
+see comments from collaborators and the bot itself. The bot reviews each one
+after every push. While it has concerns it adds
 `bot-pr` to send the PR back, for up to three rounds, after which it leaves
 the PR to a human. GitHub doesn't let the app approve its own PRs, so a human
 approval is always needed.

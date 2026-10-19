@@ -109,6 +109,10 @@ if (isPr) {
     skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
   }
   meta.headSha = pr.head.sha;
+  // Anyone can comment on the bot's own PRs, but only collaborators' and the
+  // bot's words reach the runs that work on them, which can push code.
+  const botPr = isBot(pr.user.login);
+  const heard = async login => !botPr || isBot(login) || (await isTrusted(login));
   if (meta.threadComment) {
     const thread = (await reviewThreads(number)).find(t =>
       t.comments.nodes.some(c => c.databaseId === meta.threadComment)
@@ -124,6 +128,7 @@ if (isPr) {
     const reviews = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).filter(r => r.body);
     let text = '';
     for (const r of reviews) {
+      if (!(await heard(r.user?.login))) continue;
       text += `## ${await who(r.user?.login)}, ${r.state}, ${r.submitted_at}\n\n${r.body}\n\n`;
     }
     if (text) writeFileSync(join(ctx, 'reviews.md'), text);
@@ -163,6 +168,7 @@ if (isPr) {
   if (threads.length) {
     let text = '';
     for (const t of threads) {
+      if (!(await heard(t.comments.nodes[0]?.author?.login))) continue;
       const mine = isBot(t.comments.nodes[0]?.author?.login);
       const state = [t.isResolved ? 'resolved' : 'open', t.isOutdated && 'outdated']
         .filter(Boolean)
@@ -171,7 +177,9 @@ if (isPr) {
         `## ${t.path}:${t.line ?? t.originalLine} (${state})` +
         (t.isResolved ? '' : `\n${mine ? 'Your thread, id' : 'Thread id'}: ${t.id}`) +
         '\n';
-      for (const c of t.comments.nodes) text += `\n### ${await who(c.author?.login)}\n\n${c.body}\n`;
+      for (const c of t.comments.nodes) {
+        if (await heard(c.author?.login)) text += `\n### ${await who(c.author?.login)}\n\n${c.body}\n`;
+      }
       text += '\n';
     }
     writeFileSync(join(ctx, 'threads.md'), text);
@@ -181,9 +189,9 @@ if (isPr) {
   if (conversation.length) {
     let text = '';
     for (const c of conversation) {
-      text += `## ${await who(c.user.login)}, ${c.created_at}\n\n${c.body}\n\n`;
+      if (await heard(c.user.login)) text += `## ${await who(c.user.login)}, ${c.created_at}\n\n${c.body}\n\n`;
     }
-    writeFileSync(join(ctx, 'conversation.md'), text);
+    if (text) writeFileSync(join(ctx, 'conversation.md'), text);
   }
 
   await writeGuide(pr.base.sha);
