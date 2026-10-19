@@ -16,9 +16,14 @@ if (result.skip) {
 if (result.repo !== repo) throw new Error(`result is for ${result.repo}`);
 const { number, output } = result;
 
-// Mentions in model output would ping arbitrary users.
+// Mentions in model output would ping arbitrary users. Code spans and blocks
+// don't ping, so they are left intact.
 const clean = (s, max = MAX_BODY) =>
-  String(s).replace(/(^|[^\w`])@(?=[A-Za-z0-9])/g, '$1@​').slice(0, max);
+  String(s)
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, i) => (i % 2 ? part : part.replace(/(^|\W)@(?=[A-Za-z0-9])/g, '$1@​')))
+    .join('')
+    .slice(0, max);
 
 if (result.mode === 'review') {
   const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);

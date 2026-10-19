@@ -59,7 +59,8 @@ jobs:
         github.event.pull_request.user.type != 'Bot') ||
       (github.event_name == 'issues' && github.event.issue.user.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
-        startsWith(github.event.comment.body, '@wasm-bindgen-bot ') &&
+        (startsWith(github.event.comment.body, '@wasm-bindgen-bot review') ||
+          startsWith(github.event.comment.body, '@wasm-bindgen-bot triage')) &&
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 20
