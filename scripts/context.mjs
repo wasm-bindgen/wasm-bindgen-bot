@@ -3,10 +3,9 @@
 // the base branch and a maintainer respectively.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch } from './lib.mjs';
+import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch, isTrusted } from './lib.mjs';
 
 const MAX_DIFF = 400_000;
-const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 
 const dir = process.env.BOT_DIR;
 const ctx = join(dir, 'ctx');
@@ -43,12 +42,10 @@ if (name === 'pull_request' || name === 'pull_request_target') {
   number = event.issue.number;
   isPr = false;
 } else if (name === 'issue_comment') {
-  const { body, author_association, user } = event.comment;
+  const { body, user } = event.comment;
   const m = /^@wasm-bindgen-bot\s+(review|triage)\b([\s\S]*)$/.exec(body.trim());
   if (!m) skip('comment is not a bot command');
-  if (!MAINTAINERS.includes(author_association)) {
-    skip(`${user.login} is not a maintainer (${author_association})`);
-  }
+  if (!(await isTrusted(user.login))) skip(`${user.login} is not a collaborator`);
   number = event.issue.number;
   isPr = !!event.issue.pull_request;
   if ((m[1] === 'review') !== isPr) skip(`${m[1]} does not apply here`);
@@ -63,11 +60,14 @@ if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
 if (isPr) {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open') skip('PR is not open');
+  if (event.action === 'synchronize' && !(await isTrusted(pr.user.login))) {
+    skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
+  }
   meta.headSha = pr.head.sha;
 
   writeFileSync(
     join(ctx, 'pr.md'),
-    `# ${pr.title}\n\nAuthor: ${pr.user.login} (${pr.author_association})\n` +
+    `# ${pr.title}\n\nAuthor: ${pr.user.login}\n` +
       `Base: ${pr.base.ref}\nHead: ${pr.head.label} @ ${pr.head.sha}\n\n` +
       `## Description\n\n${pr.body || '(none)'}\n`
   );
@@ -127,7 +127,7 @@ if (isPr) {
     : [];
   writeFileSync(
     join(ctx, 'issue.md'),
-    `# ${issue.title}\n\nAuthor: ${issue.user.login} (${issue.author_association})\n` +
+    `# ${issue.title}\n\nAuthor: ${issue.user.login}\n` +
       `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
       `## Body\n\n${issue.body || '(none)'}\n` +
       comments.map(c => `\n## Comment by ${c.user.login}\n\n${c.body}\n`).join('')

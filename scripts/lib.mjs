@@ -71,6 +71,18 @@ export async function paginate(path, limit = Infinity) {
   return out.slice(0, limit);
 }
 
+// author_association hides private org membership from Actions tokens, so
+// trust is the maintain role the collaborators team grants, or admin.
+export async function isTrusted(login) {
+  const res = await gh(`/repos/${repo}/collaborators/${encodeURIComponent(login)}/permission`, {
+    raw: true,
+  });
+  if (res.status === 404) return false;
+  if (!res.ok) throw new Error(`checking ${login} permission: ${res.status} ${await res.text()}`);
+  const { role_name } = await res.json();
+  return role_name === 'admin' || role_name === 'maintain';
+}
+
 export async function fileAt(path, ref) {
   const res = await gh(
     `/repos/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,

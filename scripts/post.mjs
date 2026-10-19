@@ -2,9 +2,8 @@
 // what it may touch: one comment or approval review anchored to diff lines,
 // or existing labels plus a comment.
 import { readFileSync } from 'node:fs';
-import { gh, graphql, paginate, repo, commentableLines, summary, isBot, reviewThreads } from './lib.mjs';
+import { gh, graphql, paginate, repo, commentableLines, summary, isBot, reviewThreads, isTrusted } from './lib.mjs';
 
-const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const MAX_COMMENTS = 25;
 const MAX_BODY = 60_000;
 
@@ -62,19 +61,19 @@ if (result.mode === 'review') {
   }
 
   // An approval only covers the commit that was analyzed, and by default only
-  // maintainers' PRs, since PR content can steer the model.
+  // collaborators' PRs, since PR content can steer the model.
   let event = 'COMMENT';
   const blockers = output.approve ? [] : [...output.approval_blockers];
   if (output.approve) {
     const pr = await gh(`/repos/${repo}/pulls/${number}`);
     const policy = process.env.BOT_APPROVE;
     const allowed =
-      policy === 'all' || (policy === 'maintainers' && MAINTAINERS.includes(pr.author_association));
+      policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login)));
     if (!allowed) {
       blockers.push(
         policy === 'never'
           ? 'Approvals are disabled for this repository.'
-          : 'Approval is limited to PRs from maintainers; this review found no blocking concerns.'
+          : 'Approval is limited to PRs from collaborators; this review found no blocking concerns.'
       );
     } else if (pr.head.sha !== result.headSha) {
       blockers.push('New commits were pushed during this review.');

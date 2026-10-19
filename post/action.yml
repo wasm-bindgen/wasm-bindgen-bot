@@ -10,9 +10,9 @@ inputs:
     required: true
   approve:
     description: >-
-      Whose PRs the bot may approve: maintainers (owner, member or
-      collaborator), all, or never
-    default: maintainers
+      Whose PRs the bot may approve: collaborators (maintain or admin role),
+      all, or never
+    default: collaborators
 
 runs:
   using: composite
