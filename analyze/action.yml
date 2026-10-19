@@ -44,6 +44,8 @@ runs:
         ref: ${{ steps.ctx.outputs.checkout-ref }}
         path: bot-work/repo
         persist-credentials: false
+        # Fork PR code is only read by the model, never built or executed.
+        allow-unsafe-pr-checkout: true
 
     - if: steps.ctx.outputs.mode
       shell: bash
