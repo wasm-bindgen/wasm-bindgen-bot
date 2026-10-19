@@ -24,7 +24,8 @@ without a comment. Set the `post` action's `approve` input to `all` or `never` t
 change that.
 
 Collaborators are users with the maintain or admin role on the repository,
-which the org's `collaborators` team grants. This is read from the
+which the org's `collaborators` team grants; the core team are the org owners
+(admin). This is read from the
 permission API, since `author_association` hides private org membership from
 Actions tokens.
 
@@ -40,7 +41,12 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
 - Later reviews are re-reviews: the model sees its previous review, the
   changes since, and the review threads, and resolves its own threads once
   they are addressed.
-- Issues: on open.
+- Issues: on open, and when the `bot-issue-triage` label is added, which the
+  bot removes afterwards. Triage weighs comments by project role (core team
+  members vote on direction, collaborators review), and adds `ready-for-pr`
+  when the issue has a clear goal and a settled, well-defined design space,
+  forming a queue for automated PRs. Otherwise it removes `ready-for-pr` and
+  comments on what remains unresolved.
 - Collaborators can also comment
   `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
   issue to rerun it. Text after the command is passed to the model as a
@@ -51,7 +57,8 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create a `bot-request-review` label, then add `.github/workflows/bot.yml`:
+Create `bot-request-review`, `bot-issue-triage` and `ready-for-pr` labels,
+then add `.github/workflows/bot.yml`:
 
 ```yaml
 name: wasm-bindgen-bot
@@ -65,7 +72,7 @@ on:
   pull_request_target:
     types: [opened, ready_for_review, synchronize, labeled]
   issues:
-    types: [opened]
+    types: [opened, labeled]
   issue_comment:
     types: [created]
 
@@ -83,7 +90,9 @@ jobs:
         (github.event.action == 'labeled' && github.event.label.name == 'bot-request-review') ||
         (github.event.action != 'labeled' && !github.event.pull_request.draft &&
           github.event.pull_request.user.type != 'Bot'))) ||
-      (github.event_name == 'issues' && github.event.issue.user.type != 'Bot') ||
+      (github.event_name == 'issues' && (
+        (github.event.action == 'opened' && github.event.issue.user.type != 'Bot') ||
+        (github.event.action == 'labeled' && github.event.label.name == 'bot-issue-triage'))) ||
       (github.event_name == 'issue_comment' &&
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot review') ||
           startsWith(github.event.comment.body, '@wasm-bindgen-bot triage')))

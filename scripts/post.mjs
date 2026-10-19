@@ -169,12 +169,19 @@ if (result.mode === 'review') {
   }
   summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
 } else {
+  // Labels the bot controls itself are only set from their dedicated fields.
+  const CONTROLLED = ['ready-for-pr', 'bot-issue-triage', 'bot-request-review'];
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
-  const labels = output.labels.filter(l => existing.has(l)).slice(0, 6);
-  const dropped = output.labels.filter(l => !existing.has(l));
-  if (dropped.length) console.log(`Dropped unknown labels: ${dropped.join(', ')}`);
+  const labels = output.labels.filter(l => existing.has(l) && !CONTROLLED.includes(l)).slice(0, 6);
+  const dropped = output.labels.filter(l => !labels.includes(l));
+  if (dropped.length) console.log(`Dropped labels: ${dropped.join(', ')}`);
+  if (output.ready_for_pr) labels.push('ready-for-pr');
   if (labels.length) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels } });
+  }
+  for (const label of [...(output.ready_for_pr ? [] : ['ready-for-pr']), 'bot-issue-triage']) {
+    const res = await gh(`/repos/${repo}/issues/${number}/labels/${label}`, { method: 'DELETE', raw: true });
+    if (!res.ok && res.status !== 404) console.log(`Removing ${label}: ${res.status} ${await res.text()}`);
   }
 
   let comment = output.comment?.trim() || '';
@@ -188,5 +195,5 @@ if (result.mode === 'review') {
       body: { body: clean(comment) },
     });
   }
-  summary(`Triaged #${number}: labels [${labels.join(', ')}], comment ${comment ? 'posted' : 'none'}`);
+  summary(`Triaged #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}`);
 }

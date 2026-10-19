@@ -3,7 +3,7 @@
 // the base branch and a maintainer respectively.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch, isTrusted } from './lib.mjs';
+import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch, isTrusted, roleOf } from './lib.mjs';
 
 const MAX_DIFF = 400_000;
 
@@ -50,6 +50,9 @@ if (name === 'pull_request' || name === 'pull_request_target') {
   number = event.pull_request.number;
   isPr = true;
 } else if (name === 'issues') {
+  if (event.action === 'labeled' && event.label.name !== 'bot-issue-triage') {
+    skip(`label ${event.label.name} does not request triage`);
+  }
   number = event.issue.number;
   isPr = false;
 } else if (name === 'issue_comment') {
@@ -134,15 +137,20 @@ if (isPr) {
   const issue = await gh(`/repos/${repo}/issues/${number}`);
   if (issue.state !== 'open') skip('issue is not open');
   const comments = issue.comments
-    ? await paginate(`/repos/${repo}/issues/${number}/comments`, 30)
+    ? await paginate(`/repos/${repo}/issues/${number}/comments`, 100)
     : [];
-  writeFileSync(
-    join(ctx, 'issue.md'),
-    `# ${issue.title}\n\nAuthor: ${issue.user.login}\n` +
-      `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
-      `## Body\n\n${issue.body || '(none)'}\n` +
-      comments.map(c => `\n## Comment by ${c.user.login}\n\n${c.body}\n`).join('')
-  );
+  const who = async login => {
+    const role = isBot(login) ? 'this bot' : await roleOf(login);
+    return role ? `${login} (${role})` : login;
+  };
+  let text =
+    `# ${issue.title}\n\nAuthor: ${await who(issue.user.login)}\n` +
+    `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
+    `## Body\n\n${issue.body || '(none)'}\n`;
+  for (const c of comments) {
+    text += `\n## Comment by ${await who(c.user.login)}, ${c.created_at}\n\n${c.body}\n`;
+  }
+  writeFileSync(join(ctx, 'issue.md'), text);
 
   const labels = await paginate(`/repos/${repo}/labels`);
   writeFileSync(

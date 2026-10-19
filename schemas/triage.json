@@ -3,18 +3,35 @@
   "properties": {
     "labels": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "description": "Existing repository label names to add"
     },
     "duplicate_of": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "description": "Issue number this clearly duplicates, or null"
     },
     "comment": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Comment to post in GitHub markdown, or null when there is nothing useful to say"
+    },
+    "ready_for_pr": {
+      "type": "boolean",
+      "description": "The issue is settled and clear enough to queue for an automated PR"
     }
   },
-  "required": ["labels", "duplicate_of", "comment"],
+  "required": [
+    "labels",
+    "duplicate_of",
+    "comment",
+    "ready_for_pr"
+  ],
   "additionalProperties": false
 }
