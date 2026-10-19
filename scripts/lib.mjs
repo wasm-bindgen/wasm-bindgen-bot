@@ -22,6 +22,43 @@ export async function gh(path, { method = 'GET', body, accept, raw } = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// GraphQL reports the app as `wasm-bindgen-bot`, REST as `wasm-bindgen-bot[bot]`.
+export const isBot = login => login?.replace(/\[bot\]$/, '') === 'wasm-bindgen-bot';
+
+export async function graphql(query, variables) {
+  const { data, errors } = await gh('/graphql', { method: 'POST', body: { query, variables } });
+  if (errors) throw new Error(`GraphQL: ${JSON.stringify(errors)}`);
+  return data;
+}
+
+export async function reviewThreads(number) {
+  const [owner, name] = repo.split('/');
+  const threads = [];
+  let cursor = null;
+  do {
+    const data = await graphql(
+      `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $number) {
+            reviewThreads(first: 100, after: $cursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                id isResolved isOutdated path line originalLine
+                comments(first: 50) { nodes { author { login } body } }
+              }
+            }
+          }
+        }
+      }`,
+      { owner, name, number, cursor }
+    );
+    const page = data.repository.pullRequest.reviewThreads;
+    threads.push(...page.nodes);
+    cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+  } while (cursor);
+  return threads;
+}
+
 export async function paginate(path, limit = Infinity) {
   const out = [];
   let url = `${API}${path}${path.includes('?') ? '&' : '?'}per_page=100`;

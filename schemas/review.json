@@ -36,12 +36,41 @@
     "approve": {
       "type": "boolean",
       "description": "Approve the PR as ready to merge"
+    },
+    "approval_blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Why the PR is not approved, one short reason each; empty only when approving"
+    },
+    "resolve": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "One sentence on how the concern was addressed"
+          }
+        },
+        "required": [
+          "thread_id",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "summary",
     "comments",
-    "approve"
+    "approve",
+    "approval_blockers",
+    "resolve"
   ],
   "additionalProperties": false
 }

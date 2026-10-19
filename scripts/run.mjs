@@ -34,6 +34,7 @@ const proc = spawnSync(
     '--tools', 'Read,Grep,Glob',
     '--permission-mode', 'dontAsk',
     '--model', process.env.BOT_MODEL,
+    '--effort', process.env.BOT_EFFORT,
     '--max-budget-usd', process.env.BOT_BUDGET,
     '--output-format', 'json',
     '--json-schema', schema,

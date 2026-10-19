@@ -24,7 +24,10 @@ safe for fork PRs.
 
 ## Triggers
 
-- PRs: on open and ready for review, skipping drafts and bots.
+- PRs: on open, ready for review and each push, skipping drafts and bots.
+  Later reviews are re-reviews: the model sees its previous review, the
+  changes since, and the review threads, and resolves its own threads once
+  they are addressed.
 - Issues: on open.
 - Maintainers (owner, member or collaborator) can comment
   `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
@@ -43,7 +46,7 @@ name: wasm-bindgen-bot
 
 on:
   pull_request_target:
-    types: [opened, ready_for_review]
+    types: [opened, ready_for_review, synchronize]
   issues:
     types: [opened]
   issue_comment:
@@ -94,5 +97,5 @@ Callers track `main`, so changes here roll out to every repository at once.
 Optionally add `.github/bot.md` describing the repository's layout and review
 conventions. It is read from the base branch and included in the prompt.
 
-`analyze` also accepts `review-model`, `triage-model`, `max-budget-usd` and
-`claude-code-version` inputs.
+`analyze` also accepts `review-model`, `triage-model`, `review-effort`,
+`triage-effort`, `max-budget-usd` and `claude-code-version` inputs.

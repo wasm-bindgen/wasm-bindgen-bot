@@ -17,6 +17,10 @@ inputs:
     default: claude-opus-5-5
   triage-model:
     default: claude-sonnet-5-5
+  review-effort:
+    default: high
+  triage-effort:
+    default: medium
   max-budget-usd:
     default: '5'
   claude-code-version:
@@ -51,6 +55,7 @@ runs:
         BOT_DIR: ${{ github.workspace }}/bot-work
         BOT_MODE: ${{ steps.ctx.outputs.mode }}
         BOT_MODEL: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-model || inputs.triage-model }}
+        BOT_EFFORT: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-effort || inputs.triage-effort }}
         BOT_BUDGET: ${{ inputs.max-budget-usd }}
         CF_AIG_TOKEN: ${{ inputs.cf-aig-token }}
         CF_ACCOUNT_ID: ${{ inputs.cf-account-id }}

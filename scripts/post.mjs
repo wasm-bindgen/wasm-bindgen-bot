@@ -2,7 +2,7 @@
 // what it may touch: one comment or approval review anchored to diff lines,
 // or existing labels plus a comment.
 import { readFileSync } from 'node:fs';
-import { gh, paginate, repo, commentableLines, summary } from './lib.mjs';
+import { gh, graphql, paginate, repo, commentableLines, summary, isBot, reviewThreads } from './lib.mjs';
 
 const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const MAX_COMMENTS = 25;
@@ -21,7 +21,7 @@ const { number, output } = result;
 const clean = (s, max = MAX_BODY) =>
   String(s)
     .split(/(```[\s\S]*?```|`[^`\n]*`)/)
-    .map((part, i) => (i % 2 ? part : part.replace(/(^|\W)@(?=[A-Za-z0-9])/g, '$1@​')))
+    .map((part, i) => (i % 2 ? part : part.replace(/(^|\W)@(?=[A-Za-z0-9])/g, '$1@\u200b')))
     .join('')
     .slice(0, max);
 
@@ -49,22 +49,34 @@ if (result.mode === 'review') {
       body,
     });
   }
-  const body = clean(
-    output.summary + (extra.length ? `\n\n${extra.join('\n\n')}` : '')
-  );
-
   // An approval only covers the commit that was analyzed, and by default only
   // maintainers' PRs, since PR content can steer the model.
   let event = 'COMMENT';
+  const blockers = output.approve ? [] : [...output.approval_blockers];
   if (output.approve) {
     const pr = await gh(`/repos/${repo}/pulls/${number}`);
     const policy = process.env.BOT_APPROVE;
     const allowed =
       policy === 'all' || (policy === 'maintainers' && MAINTAINERS.includes(pr.author_association));
-    if (!allowed) console.log(`Not approving: ${pr.user.login} is ${pr.author_association}, policy ${policy}`);
-    else if (pr.head.sha !== result.headSha) console.log('Not approving: head moved since analysis');
-    else event = 'APPROVE';
+    if (!allowed) {
+      blockers.push(
+        policy === 'never'
+          ? 'Approvals are disabled for this repository.'
+          : 'Approval is limited to PRs from maintainers; this review found no blocking concerns.'
+      );
+    } else if (pr.head.sha !== result.headSha) {
+      blockers.push('New commits were pushed during this review.');
+    } else {
+      event = 'APPROVE';
+    }
   }
+  if (event !== 'APPROVE' && !blockers.length) blockers.push('No reason given.');
+
+  const body = clean(
+    output.summary +
+      (event === 'APPROVE' ? '' : `\n\n**Not approving:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+      (extra.length ? `\n\n${extra.join('\n\n')}` : '')
+  );
 
   const review = { commit_id: result.headSha, event, body, comments: inline };
   const res = await gh(`/repos/${repo}/pulls/${number}/reviews`, {
@@ -82,7 +94,28 @@ if (result.mode === 'review') {
   } else if (!res.ok) {
     throw new Error(`posting review: ${res.status} ${await res.text()}`);
   }
-  summary(`Posted ${event} review on #${number} with ${inline.length} inline comments`);
+
+  // Only the bot's own open threads may be resolved.
+  const threads = new Map((await reviewThreads(number)).map(t => [t.id, t]));
+  let resolved = 0;
+  for (const { thread_id, reason } of output.resolve.slice(0, MAX_COMMENTS)) {
+    const t = threads.get(thread_id);
+    if (!t || t.isResolved || !isBot(t.comments.nodes[0]?.author?.login)) {
+      console.log(`Not resolving ${thread_id}: not an open bot thread`);
+      continue;
+    }
+    await graphql(
+      `mutation($id: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) {
+          clientMutationId
+        }
+        resolveReviewThread(input: { threadId: $id }) { clientMutationId }
+      }`,
+      { id: thread_id, body: clean(`Addressed in ${result.headSha.slice(0, 7)}: ${reason}`, 4000) }
+    );
+    resolved++;
+  }
+  summary(`Posted ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
 } else {
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = output.labels.filter(l => existing.has(l)).slice(0, 6);

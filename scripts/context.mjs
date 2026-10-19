@@ -3,7 +3,7 @@
 // the base branch and a maintainer respectively.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gh, paginate, fileAt, repo, setOutput } from './lib.mjs';
+import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads } from './lib.mjs';
 
 const MAX_DIFF = 400_000;
 const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
@@ -13,6 +13,19 @@ const ctx = join(dir, 'ctx');
 mkdirSync(ctx, { recursive: true });
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const name = process.env.GITHUB_EVENT_NAME;
+
+function toDiff(files) {
+  let diff = '';
+  for (const f of files) {
+    const from = f.previous_filename || f.filename;
+    diff += `diff --git a/${from} b/${f.filename}\n`;
+    diff += `status: ${f.status} (+${f.additions} -${f.deletions})\n`;
+    diff += f.patch ? `${f.patch}\n` : '(no patch: binary or too large)\n';
+  }
+  return diff.length > MAX_DIFF
+    ? diff.slice(0, MAX_DIFF) + '\n(diff truncated, read files in ./repo)\n'
+    : diff;
+}
 
 function skip(reason) {
   console.log(`Skipping: ${reason}`);
@@ -60,24 +73,45 @@ if (isPr) {
   );
 
   const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
-  let diff = '';
-  for (const f of files) {
-    const from = f.previous_filename || f.filename;
-    diff += `diff --git a/${from} b/${f.filename}\n`;
-    diff += `status: ${f.status} (+${f.additions} -${f.deletions})\n`;
-    diff += f.patch ? `${f.patch}\n` : '(no patch: binary or too large)\n';
-  }
-  if (diff.length > MAX_DIFF) {
-    diff = diff.slice(0, MAX_DIFF) + '\n(diff truncated, read files in ./repo)\n';
-  }
-  writeFileSync(join(ctx, 'diff.patch'), diff);
+  writeFileSync(join(ctx, 'diff.patch'), toDiff(files));
 
-  const comments = await paginate(`/repos/${repo}/pulls/${number}/comments`, 200);
-  if (comments.length) {
+  const previous = (await paginate(`/repos/${repo}/pulls/${number}/reviews`))
+    .filter(r => isBot(r.user?.login))
+    .at(-1);
+  if (previous) {
+    meta.previousSha = previous.commit_id;
     writeFileSync(
-      join(ctx, 'review-comments.md'),
-      comments
-        .map(c => `### ${c.user.login} on ${c.path}:${c.line ?? c.original_line}\n\n${c.body}\n`)
+      join(ctx, 'previous-review.md'),
+      `Reviewed commit: ${previous.commit_id}\nState: ${previous.state}\n\n${previous.body}\n`
+    );
+    if (previous.commit_id !== pr.head.sha) {
+      const res = await gh(`/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`, { raw: true });
+      // A force push can drop the reviewed commit, leaving only the full diff.
+      if (res.ok) {
+        const { files: changed = [] } = await res.json();
+        writeFileSync(join(ctx, 'changes-since-review.patch'), toDiff(changed));
+      }
+    }
+  }
+
+  const threads = await reviewThreads(number);
+  if (threads.length) {
+    writeFileSync(
+      join(ctx, 'threads.md'),
+      threads
+        .map(t => {
+          const mine = isBot(t.comments.nodes[0]?.author?.login);
+          const state = [t.isResolved ? 'resolved' : 'open', t.isOutdated && 'outdated']
+            .filter(Boolean)
+            .join(', ');
+          const head =
+            `## ${t.path}:${t.line ?? t.originalLine} (${state})` +
+            (mine && !t.isResolved ? `\nYour thread, id: ${t.id}` : '');
+          const body = t.comments.nodes
+            .map(c => `### ${c.author?.login ?? 'ghost'}\n\n${c.body}`)
+            .join('\n\n');
+          return `${head}\n\n${body}\n`;
+        })
         .join('\n')
     );
   }
