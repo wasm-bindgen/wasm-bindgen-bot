@@ -20,8 +20,10 @@ Each run has two jobs:
 A review is only posted if the PR head hasn't moved since it was analyzed, so
 runs superseded by a newer push never post. The bot may approve any PR, which
 never lands anything by itself, and when there is nothing to add it approves
-without a comment. Set the `post` action's `approve` input to `collaborators` or `never`
-to restrict that.
+without a comment. Otherwise it lists what it wants changed under "Requesting
+changes", though the review itself is never a blocking change request. Set
+the `post` action's `approve` input to `collaborators` or `never` to restrict
+approvals.
 
 Collaborators are users with the maintain or admin role on the repository,
 which the org's `collaborators` team grants; the core team are the org owners

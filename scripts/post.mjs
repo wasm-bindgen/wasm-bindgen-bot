@@ -95,7 +95,7 @@ if (result.mode === 'review') {
   const skip = silent && !output.approve;
   const body = silent && event === 'APPROVE' ? '' : clean(
     output.summary +
-      (event === 'APPROVE' ? '' : `${output.summary.trim() ? '\n\n' : ''}**Not approving:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+      (event === 'APPROVE' ? '' : `${output.summary.trim() ? '\n\n' : ''}**Requesting changes:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
       (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 
