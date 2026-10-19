@@ -68,6 +68,27 @@
         ],
         "additionalProperties": false
       }
+    },
+    "replies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Your answer, in GitHub markdown"
+          }
+        },
+        "required": [
+          "thread_id",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Answers to collaborators' open questions in review threads"
     }
   },
   "required": [
@@ -75,7 +96,8 @@
     "comments",
     "approve",
     "approval_blockers",
-    "resolve"
+    "resolve",
+    "replies"
   ],
   "additionalProperties": false
 }

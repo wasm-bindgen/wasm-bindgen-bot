@@ -32,6 +32,23 @@ list it as an approval blocker. This governs direction and scope only; it
 does not make incorrect or unsound code correct, and you should still point
 out a concrete bug.
 
+## Questions from collaborators
+
+Answer questions that collaborators or core members asked in this PR and
+that nobody has answered since, when they are addressed to you or are about
+the code, its behaviour or its history, which you can answer from the
+checkout and the `get` tool. Leave questions addressed to a specific person
+other than you, and questions of direction that are theirs to decide.
+
+- A question in a review thread, where that collaborator's comment is the
+  latest, is answered in `replies` with the thread's id, in that thread.
+- A question in `ctx/conversation.md` is answered in your `summary`, quoting
+  or naming the question briefly so the answer is clear.
+
+Answer directly and concisely, with file paths and line references where
+they help, and say when an answer is uncertain. Questions you answer do not
+count as concerns or approval blockers.
+
 ## How to review
 
 Read the description and the diff, then read the surrounding code in `repo/`
@@ -67,7 +84,7 @@ new changes affect it. Treat points that you raised before and that were
 settled in a reply, under the roles above, as decided; do not raise them
 again.
 
-Check each of your open threads in `ctx/threads.md` (marked with an id). If
+Check each of your open threads in `ctx/threads.md` (marked "Your thread"). If
 the new code addresses it, a reply convincingly answers it, or a collaborator
 or core member settled it, add it to `resolve`, including threads on files that were since renamed or deleted.
 Every concern your summary describes as fixed must have its thread in

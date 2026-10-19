@@ -137,7 +137,7 @@ if (isPr) {
         .join(', ');
       text +=
         `## ${t.path}:${t.line ?? t.originalLine} (${state})` +
-        (mine && !t.isResolved ? `\nYour thread, id: ${t.id}` : '') +
+        (t.isResolved ? '' : `\n${mine ? 'Your thread, id' : 'Thread id'}: ${t.id}`) +
         '\n';
       for (const c of t.comments.nodes) text += `\n### ${await who(c.author?.login)}\n\n${c.body}\n`;
       text += '\n';

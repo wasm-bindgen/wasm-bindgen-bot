@@ -169,7 +169,26 @@ if (result.mode === 'review') {
     );
     resolved++;
   }
-  summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads`);
+  // Only questions where a collaborator has the last word get an answer.
+  let replied = 0;
+  for (const { thread_id, body } of (output.replies ?? []).slice(0, MAX_COMMENTS)) {
+    const t = threads.get(thread_id);
+    const last = t?.comments.nodes.at(-1)?.author?.login;
+    if (!t || t.isResolved || isBot(last) || !(await isTrusted(last))) {
+      console.log(`Not replying to ${thread_id}: not an open collaborator question`);
+      continue;
+    }
+    await graphql(
+      `mutation($id: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) {
+          clientMutationId
+        }
+      }`,
+      { id: thread_id, body: clean(body, 8000) }
+    );
+    replied++;
+  }
+  summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
 } else if (result.mode === 'pr') {
   await postPr();
 } else {
