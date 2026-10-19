@@ -1,9 +1,10 @@
 // Turns the model's untrusted structured output into GitHub writes, enforcing
-// what it may touch: one COMMENT review anchored to diff lines, or existing
-// labels plus a comment.
+// what it may touch: one comment or approval review anchored to diff lines,
+// or existing labels plus a comment.
 import { readFileSync } from 'node:fs';
 import { gh, paginate, repo, commentableLines, summary } from './lib.mjs';
 
+const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const MAX_COMMENTS = 25;
 const MAX_BODY = 60_000;
 
@@ -47,7 +48,20 @@ if (result.mode === 'review') {
     output.summary + (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 
-  const review = { commit_id: result.headSha, event: 'COMMENT', body, comments: inline };
+  // An approval only covers the commit that was analyzed, and by default only
+  // maintainers' PRs, since PR content can steer the model.
+  let event = 'COMMENT';
+  if (output.approve) {
+    const pr = await gh(`/repos/${repo}/pulls/${number}`);
+    const policy = process.env.BOT_APPROVE;
+    const allowed =
+      policy === 'all' || (policy === 'maintainers' && MAINTAINERS.includes(pr.author_association));
+    if (!allowed) console.log(`Not approving: ${pr.user.login} is ${pr.author_association}, policy ${policy}`);
+    else if (pr.head.sha !== result.headSha) console.log('Not approving: head moved since analysis');
+    else event = 'APPROVE';
+  }
+
+  const review = { commit_id: result.headSha, event, body, comments: inline };
   const res = await gh(`/repos/${repo}/pulls/${number}/reviews`, {
     method: 'POST',
     body: review,
@@ -63,7 +77,7 @@ if (result.mode === 'review') {
   } else if (!res.ok) {
     throw new Error(`posting review: ${res.status} ${await res.text()}`);
   }
-  summary(`Posted review on #${number} with ${inline.length} inline comments`);
+  summary(`Posted ${event} review on #${number} with ${inline.length} inline comments`);
 } else {
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = output.labels.filter(l => existing.has(l)).slice(0, 6);

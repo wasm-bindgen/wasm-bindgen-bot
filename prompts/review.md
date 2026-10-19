@@ -46,5 +46,9 @@ empty.
   context line inside a hunk. Use `start_line` only for multi-line ranges.
   Write each `body` as one short paragraph, with a code suggestion in a fenced
   block when it helps.
+- `approve`: true only when you found no correctness, soundness,
+  compatibility, test or documentation concerns and are confident the PR can
+  merge as it is. Any remaining comments must then be optional suggestions.
+  When in doubt, leave it false; your review still counts as a comment.
 
-Never approve or request changes; your review is advisory.
+Never request changes.

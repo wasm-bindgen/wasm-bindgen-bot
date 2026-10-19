@@ -8,6 +8,11 @@ inputs:
     required: true
   private-key:
     required: true
+  approve:
+    description: >-
+      Whose PRs the bot may approve: maintainers (owner, member or
+      collaborator), all, or never
+    default: maintainers
 
 runs:
   using: composite
@@ -31,4 +36,5 @@ runs:
       env:
         GH_TOKEN: ${{ steps.token.outputs.token }}
         BOT_RESULT: ${{ runner.temp }}/wasm-bindgen-bot/result.json
+        BOT_APPROVE: ${{ inputs.approve }}
       run: node "$GITHUB_ACTION_PATH/../scripts/post.mjs"

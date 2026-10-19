@@ -11,9 +11,13 @@ Each run has two jobs:
   nothing in the checkout can configure it. It holds the AI Gateway token and a
   read-only `GITHUB_TOKEN`, and uploads the model's structured output.
 - **post** validates that output and posts it as the `wasm-bindgen-bot` app: a
-  single `COMMENT` review anchored to diff lines, or existing labels and a
-  comment on an issue. It holds an app token scoped to issues and pull
-  requests, and never runs a model.
+  single review anchored to diff lines, or existing labels and a comment on an
+  issue. Reviews are comments or approvals, never change requests. It holds
+  an app token scoped to issues and pull requests, and never runs a model.
+
+Approval is limited to the analyzed head commit and, by default, to PRs from
+maintainers. Set the `post` action's `approve` input to `all` or `never` to
+change that.
 
 PR code is never built or executed, which is what makes `pull_request_target`
 safe for fork PRs.
