@@ -113,12 +113,12 @@ if (result.mode === 'review') {
     });
   }
 
-  const unlabel = await gh(`/repos/${repo}/issues/${number}/labels/request-review`, {
+  const unlabel = await gh(`/repos/${repo}/issues/${number}/labels/bot-request-review`, {
     method: 'DELETE',
     raw: true,
   });
   if (!unlabel.ok && unlabel.status !== 404) {
-    console.log(`Removing request-review label: ${unlabel.status} ${await unlabel.text()}`);
+    console.log(`Removing bot-request-review label: ${unlabel.status} ${await unlabel.text()}`);
   }
 
   // Only the bot's own open threads may be resolved.

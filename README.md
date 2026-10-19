@@ -33,7 +33,7 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
 
 - PRs: on open and ready for review, skipping drafts and bots. PRs from
   collaborators are also re-reviewed on every push.
-- Adding the `request-review` label to a PR runs a review, and the bot
+- Adding the `bot-request-review` label to a PR runs a review, and the bot
   removes the label afterwards. Use it to re-review third-party PRs.
 - Later reviews are re-reviews: the model sees its previous review, the
   changes since, and the review threads, and resolves its own threads once
@@ -49,7 +49,7 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create a `request-review` label, then add `.github/workflows/bot.yml`:
+Create a `bot-request-review` label, then add `.github/workflows/bot.yml`:
 
 ```yaml
 name: wasm-bindgen-bot
@@ -78,7 +78,7 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository) ||
         (github.event_name == 'pull_request_target' &&
           github.event.pull_request.head.repo.full_name != github.repository)) && (
-        (github.event.action == 'labeled' && github.event.label.name == 'request-review') ||
+        (github.event.action == 'labeled' && github.event.label.name == 'bot-request-review') ||
         (github.event.action != 'labeled' && !github.event.pull_request.draft &&
           github.event.pull_request.user.type != 'Bot'))) ||
       (github.event_name == 'issues' && github.event.issue.user.type != 'Bot') ||
