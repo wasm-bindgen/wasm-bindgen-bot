@@ -77,15 +77,16 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   } else {
     mode = isPr ? 'review' : 'triage';
   }
-} else if (name === 'issue_comment') {
+} else if (name === 'issue_comment' || name === 'pull_request_review_comment') {
   const { body, user } = event.comment;
   const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+([\s\S]+)$/.exec(body.trim());
   if (!m) skip('comment is not to the bot');
   const verb = /^([a-z-]+)\b([\s\S]*)$/.exec(m[1]);
   mode = verb && Object.hasOwn(VERBS, verb[1]) ? verb[1] : 'ask';
   requester = user.login;
-  number = event.issue.number;
-  isPr = !!event.issue.pull_request;
+  number = (event.issue ?? event.pull_request).number;
+  isPr = !!(event.pull_request ?? event.issue.pull_request);
+  if (name === 'pull_request_review_comment') meta0.threadComment = event.comment.id;
   request = `${user.login}: ${(mode === 'ask' ? m[1] : verb[2]).trim()}`;
   meta0.commentUrl = event.comment.html_url;
 } else {
@@ -100,7 +101,6 @@ const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review');
 if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
 const meta = { repo, number, mode, requester, label, ...meta0 };
-if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
 
 if (isPr) {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
@@ -109,6 +109,14 @@ if (isPr) {
     skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
   }
   meta.headSha = pr.head.sha;
+  if (meta.threadComment) {
+    const thread = (await reviewThreads(number)).find(t =>
+      t.comments.nodes.some(c => c.databaseId === meta.threadComment)
+    );
+    if (!thread) skip('could not find the review thread');
+    meta.threadId = thread.id;
+    request += `\n\n(Asked in the review thread on ${thread.path}:${thread.line ?? thread.originalLine}, id ${thread.id}.)`;
+  }
   if (mode === 'pr') {
     if (!isBot(pr.user.login) || pr.head.repo?.full_name !== repo) skip('pr only updates the bot\'s own PRs');
     meta.prompt = 'pr-update';
@@ -259,5 +267,6 @@ if (isPr) {
   setOutput('checkout-ref', default_branch);
 }
 
+if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
 writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
 setOutput('mode', meta.mode);

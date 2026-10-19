@@ -50,7 +50,8 @@ the bot removes afterwards. Text after a comment command is passed to the
 model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
 Any other comment to the bot, such as `@wbg-bot what happens here if the
 closure is dropped?`, is a question, which it answers read-only with the
-context a review or triage would have.
+context a review or triage would have. In a review thread on a same-repo
+PR, it answers in the thread.
 
 - `review` (PRs): runs on open and ready for review, skipping drafts and
   bots, and on every push to collaborators' PRs. Use the command to review
@@ -111,6 +112,10 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
+  # Only same-repo PRs, since GitHub gives fork PRs' review comment runs no
+  # secrets.
+  pull_request_review_comment:
+    types: [created]
 
 permissions: {}
 
@@ -129,7 +134,9 @@ jobs:
       (github.event_name == 'issues' && (
         (github.event.action == 'opened' && github.event.issue.user.type != 'Bot') ||
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')))) ||
-      (github.event_name == 'issue_comment' &&
+      ((github.event_name == 'issue_comment' ||
+        (github.event_name == 'pull_request_review_comment' &&
+          github.event.pull_request.head.repo.full_name == github.repository)) &&
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot ') ||
           startsWith(github.event.comment.body, '@wbg-bot ')))
     runs-on: ubuntu-latest
@@ -137,7 +144,7 @@ jobs:
     concurrency:
       # Comment runs start before the bot checks the commenter, so they get
       # their own group rather than cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number }}${{ github.event_name == 'issue_comment' && format('-{0}', github.event.comment.id) || '' }}
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number }}${{ github.event.comment && format('-{0}', github.event.comment.id) || '' }}
       cancel-in-progress: true
     permissions:
       contents: read

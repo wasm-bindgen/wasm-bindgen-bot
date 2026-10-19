@@ -44,7 +44,7 @@ export async function reviewThreads(number) {
               pageInfo { hasNextPage endCursor }
               nodes {
                 id isResolved isOutdated path line originalLine
-                comments(first: 50) { nodes { author { login } body } }
+                comments(first: 50) { nodes { databaseId author { login } body } }
               }
             }
           }

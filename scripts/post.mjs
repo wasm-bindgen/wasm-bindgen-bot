@@ -217,7 +217,16 @@ if (result.mode === 'review') {
   await postPr();
 } else if (result.mode === 'ask') {
   const answer = String(output.answer).trim();
-  if (answer) {
+  if (answer && result.threadId) {
+    await graphql(
+      `mutation($id: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) {
+          clientMutationId
+        }
+      }`,
+      { id: result.threadId, body: clean(answer) }
+    );
+  } else if (answer) {
     await gh(`/repos/${repo}/issues/${number}/comments`, {
       method: 'POST',
       body: { body: clean(`Answering ${result.requester} in ${result.commentUrl}:\n\n${answer}`) },
