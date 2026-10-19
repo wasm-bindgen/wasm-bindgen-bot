@@ -1,0 +1,64 @@
+name: wasm-bindgen-bot analyze
+description: >-
+  Runs Claude Code read-only over a PR or issue and uploads its structured
+  result. Holds the AI Gateway token but no GitHub write access.
+
+inputs:
+  cf-aig-token:
+    description: Cloudflare AI Gateway token
+    required: true
+  cf-account-id:
+    description: Cloudflare account ID
+    required: true
+  cf-gateway-id:
+    description: Cloudflare AI Gateway ID
+    required: true
+  review-model:
+    default: claude-opus-5-5
+  triage-model:
+    default: claude-sonnet-5-5
+  max-budget-usd:
+    default: '5'
+  claude-code-version:
+    default: 2.1.303
+  github-token:
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - id: ctx
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        BOT_DIR: ${{ github.workspace }}/bot-work
+      run: node "$GITHUB_ACTION_PATH/../scripts/context.mjs"
+
+    - if: steps.ctx.outputs.mode
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ steps.ctx.outputs.checkout-ref }}
+        path: bot-work/repo
+        persist-credentials: false
+
+    - if: steps.ctx.outputs.mode
+      shell: bash
+      run: npm install -g --no-fund --no-audit "@anthropic-ai/claude-code@${{ inputs.claude-code-version }}"
+
+    - if: steps.ctx.outputs.mode
+      shell: bash
+      env:
+        BOT_DIR: ${{ github.workspace }}/bot-work
+        BOT_MODE: ${{ steps.ctx.outputs.mode }}
+        BOT_MODEL: ${{ steps.ctx.outputs.mode == 'review' && inputs.review-model || inputs.triage-model }}
+        BOT_BUDGET: ${{ inputs.max-budget-usd }}
+        CF_AIG_TOKEN: ${{ inputs.cf-aig-token }}
+        CF_ACCOUNT_ID: ${{ inputs.cf-account-id }}
+        CF_GATEWAY_ID: ${{ inputs.cf-gateway-id }}
+      run: node "$GITHUB_ACTION_PATH/../scripts/run.mjs"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: wasm-bindgen-bot-result
+        path: bot-work/result.json
+        retention-days: 7

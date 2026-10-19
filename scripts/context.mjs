@@ -1,0 +1,125 @@
+// Collects the PR or issue into files for the model to read. Everything
+// written under ctx/ is untrusted input; guide.md and request.md come from
+// the base branch and a maintainer respectively.
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { gh, paginate, fileAt, repo, setOutput } from './lib.mjs';
+
+const MAX_DIFF = 400_000;
+const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+
+const dir = process.env.BOT_DIR;
+const ctx = join(dir, 'ctx');
+mkdirSync(ctx, { recursive: true });
+const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+const name = process.env.GITHUB_EVENT_NAME;
+
+function skip(reason) {
+  console.log(`Skipping: ${reason}`);
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ skip: reason }));
+  process.exit(0);
+}
+
+let number;
+let request = '';
+let isPr;
+if (name === 'pull_request' || name === 'pull_request_target') {
+  number = event.pull_request.number;
+  isPr = true;
+} else if (name === 'issues') {
+  number = event.issue.number;
+  isPr = false;
+} else if (name === 'issue_comment') {
+  const { body, author_association, user } = event.comment;
+  const m = /^@wasm-bindgen-bot\s+(review|triage)\b([\s\S]*)$/.exec(body.trim());
+  if (!m) skip('comment is not a bot command');
+  if (!MAINTAINERS.includes(author_association)) {
+    skip(`${user.login} is not a maintainer (${author_association})`);
+  }
+  number = event.issue.number;
+  isPr = !!event.issue.pull_request;
+  if ((m[1] === 'review') !== isPr) skip(`${m[1]} does not apply here`);
+  request = `${user.login}: ${m[2].trim()}`;
+} else {
+  skip(`unsupported event ${name}`);
+}
+
+const meta = { repo, number, mode: isPr ? 'review' : 'triage' };
+if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
+
+if (isPr) {
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (pr.state !== 'open') skip('PR is not open');
+  meta.headSha = pr.head.sha;
+
+  writeFileSync(
+    join(ctx, 'pr.md'),
+    `# ${pr.title}\n\nAuthor: ${pr.user.login} (${pr.author_association})\n` +
+      `Base: ${pr.base.ref}\nHead: ${pr.head.label} @ ${pr.head.sha}\n\n` +
+      `## Description\n\n${pr.body || '(none)'}\n`
+  );
+
+  const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
+  let diff = '';
+  for (const f of files) {
+    const from = f.previous_filename || f.filename;
+    diff += `diff --git a/${from} b/${f.filename}\n`;
+    diff += `status: ${f.status} (+${f.additions} -${f.deletions})\n`;
+    diff += f.patch ? `${f.patch}\n` : '(no patch: binary or too large)\n';
+  }
+  if (diff.length > MAX_DIFF) {
+    diff = diff.slice(0, MAX_DIFF) + '\n(diff truncated, read files in ./repo)\n';
+  }
+  writeFileSync(join(ctx, 'diff.patch'), diff);
+
+  const comments = await paginate(`/repos/${repo}/pulls/${number}/comments`, 200);
+  if (comments.length) {
+    writeFileSync(
+      join(ctx, 'review-comments.md'),
+      comments
+        .map(c => `### ${c.user.login} on ${c.path}:${c.line ?? c.original_line}\n\n${c.body}\n`)
+        .join('\n')
+    );
+  }
+
+  const guide = await fileAt('.github/bot.md', pr.base.sha);
+  if (guide) writeFileSync(join(dir, 'guide.md'), guide);
+  setOutput('checkout-ref', pr.head.sha);
+} else {
+  const issue = await gh(`/repos/${repo}/issues/${number}`);
+  if (issue.state !== 'open') skip('issue is not open');
+  const comments = issue.comments
+    ? await paginate(`/repos/${repo}/issues/${number}/comments`, 30)
+    : [];
+  writeFileSync(
+    join(ctx, 'issue.md'),
+    `# ${issue.title}\n\nAuthor: ${issue.user.login} (${issue.author_association})\n` +
+      `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
+      `## Body\n\n${issue.body || '(none)'}\n` +
+      comments.map(c => `\n## Comment by ${c.user.login}\n\n${c.body}\n`).join('')
+  );
+
+  const labels = await paginate(`/repos/${repo}/labels`);
+  writeFileSync(
+    join(ctx, 'labels.md'),
+    labels.map(l => `- ${l.name}${l.description ? `: ${l.description}` : ''}`).join('\n') + '\n'
+  );
+
+  const open = await paginate(`/repos/${repo}/issues?state=open`, 1500);
+  const closed = await paginate(`/repos/${repo}/issues?state=closed&sort=updated`, 300);
+  writeFileSync(
+    join(ctx, 'other-issues.txt'),
+    [...open, ...closed]
+      .filter(i => !i.pull_request && i.number !== number)
+      .map(i => `#${i.number} [${i.state}] ${i.title}`)
+      .join('\n') + '\n'
+  );
+
+  const { default_branch } = await gh(`/repos/${repo}`);
+  const guide = await fileAt('.github/bot.md', default_branch);
+  if (guide) writeFileSync(join(dir, 'guide.md'), guide);
+  setOutput('checkout-ref', default_branch);
+}
+
+writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
+setOutput('mode', meta.mode);

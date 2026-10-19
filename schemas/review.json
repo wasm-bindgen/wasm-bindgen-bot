@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "Review body in GitHub markdown: what the PR does and the overall assessment"
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "line": { "type": "integer", "description": "New-file line number inside a diff hunk" },
+          "start_line": { "type": "integer", "description": "First line of a multi-line range, below line" },
+          "body": { "type": "string" }
+        },
+        "required": ["path", "line", "body"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["summary", "comments"],
+  "additionalProperties": false
+}

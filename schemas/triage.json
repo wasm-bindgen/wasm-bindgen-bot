@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Existing repository label names to add"
+    },
+    "duplicate_of": {
+      "type": ["integer", "null"],
+      "description": "Issue number this clearly duplicates, or null"
+    },
+    "comment": {
+      "type": ["string", "null"],
+      "description": "Comment to post in GitHub markdown, or null when there is nothing useful to say"
+    }
+  },
+  "required": ["labels", "duplicate_of", "comment"],
+  "additionalProperties": false
+}
