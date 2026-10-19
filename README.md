@@ -61,7 +61,9 @@ model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
   fixed, duplicates, or clearly spam or off topic.
 - `investigate` (issues): clones the repository and tries to reproduce the
   issue, then comments with a minimal reproduction or what it tried, and
-  triages as above.
+  labels or closes it as triage does. When the issue is ready for a PR, it
+  adds `bot-pr`, so its comment becomes the PR's brief. Only triage sets
+  `ready-for-pr`.
 - `pr` (issues): implements the issue, or the request in the comment, builds
   and tests it, and opens a PR from a `wbg-bot/issue-<n>` branch. Changes to
   workflows are dropped, since the app can't push them.

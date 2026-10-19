@@ -26,3 +26,6 @@ Understand what is being reported or requested. Read the relevant code in
 behaviour is real and still present.
 
 {{include:issue-output}}
+
+- `ready_for_pr`: true when the issue is ready for a PR as described above,
+  which marks it with the `ready-for-pr` label.

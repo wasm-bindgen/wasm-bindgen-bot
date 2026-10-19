@@ -22,10 +22,6 @@
       ],
       "description": "Comment to post in GitHub markdown, or null when there is nothing useful to say"
     },
-    "ready_for_pr": {
-      "type": "boolean",
-      "description": "The issue is settled and clear enough to queue for an automated PR"
-    },
     "close": {
       "enum": [
         "resolved",
@@ -42,15 +38,19 @@
         "inconclusive"
       ],
       "description": "Whether you reproduced the reported behaviour"
+    },
+    "create_pr": {
+      "type": "boolean",
+      "description": "The issue is ready for a PR, so start one now"
     }
   },
   "required": [
     "labels",
     "duplicate_of",
     "comment",
-    "ready_for_pr",
     "close",
-    "reproduced"
+    "reproduced",
+    "create_pr"
   ],
   "additionalProperties": false
 }

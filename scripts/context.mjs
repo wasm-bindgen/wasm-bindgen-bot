@@ -84,7 +84,10 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   skip(`unsupported event ${name}`);
 }
 if ((VERBS[mode] === 'pr') !== isPr) skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
-if (requester && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
+// The app itself only adds `bot-pr`, after an investigation a collaborator
+// requested.
+const fromApp = isBot(requester) && mode === 'pr';
+if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
 const meta = { repo, number, mode, requester, label };
 if (request) writeFileSync(join(dir, 'request.md'), request + '\n');

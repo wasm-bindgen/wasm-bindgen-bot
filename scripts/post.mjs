@@ -196,16 +196,19 @@ if (result.mode === 'review') {
   const controlled = l => l === 'ready-for-pr' || l.startsWith('bot-');
   const dup = Number.isInteger(output.duplicate_of) && output.duplicate_of !== number ? output.duplicate_of : null;
   const close = output.close === 'duplicate' && !dup ? null : output.close;
-  if (close) output.ready_for_pr = false;
+  // Only triage marks issues ready; an investigation starts the PR itself.
+  const triage = result.mode === 'triage';
+  const ready = triage && output.ready_for_pr && !close;
+  const createPr = result.mode === 'investigate' && output.create_pr && !close;
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = output.labels.filter(l => existing.has(l) && !controlled(l)).slice(0, 6);
   const dropped = output.labels.filter(l => !labels.includes(l));
   if (dropped.length) console.log(`Dropped labels: ${dropped.join(', ')}`);
-  if (output.ready_for_pr) labels.push('ready-for-pr');
+  if (ready) labels.push('ready-for-pr');
   if (labels.length) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels } });
   }
-  if (!output.ready_for_pr) await unlabel('ready-for-pr');
+  if (triage && !ready) await unlabel('ready-for-pr');
   if (result.label) await unlabel(result.label);
 
   let comment = output.comment?.trim() || '';
@@ -232,7 +235,12 @@ if (result.mode === 'review') {
       closed = true;
     }
   }
-  summary(`${result.mode === 'investigate' ? `Investigated (${output.reproduced})` : 'Triaged'} #${number}: labels [${labels.join(', ')}], ready-for-pr ${output.ready_for_pr}, comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
+  // Added after the comment, which the PR run reads as its brief. The label
+  // event comes from the app, which the PR run accepts as a requester.
+  if (createPr && comment) {
+    await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-pr'] } });
+  }
+  summary(`${triage ? `Triaged #${number}: ready-for-pr ${ready}` : `Investigated #${number} (${output.reproduced}): PR ${createPr && !!comment}`}, labels [${labels.join(', ')}], comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
 }
 
 // Commits the files the model changed onto the base commit through the Git
@@ -294,7 +302,9 @@ async function postPr() {
 
   let body = String(output.body).trim();
   if (!new RegExp(`#${number}\\b`).test(body)) body += `\n\nCloses #${number}`;
-  body += `\n\n_Requested by ${result.requester}._`;
+  body += isBot(result.requester)
+    ? `\n\n_Started from the investigation in #${number}._`
+    : `\n\n_Requested by ${result.requester}._`;
   const pr = await gh(`/repos/${repo}/pulls`, {
     method: 'POST',
     body: { title, head: branch, base: result.baseRef, body: clean(body) },

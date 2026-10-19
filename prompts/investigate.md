@@ -45,9 +45,17 @@ clear. Do not attempt a fix.
 
 {{include:issue-output}}
 
+- `create_pr`: true when the issue is ready for a PR as described above and,
+  for a bug, you reproduced it. The bot then starts writing the PR right
+  away, with this issue and your comment as its brief.
+
 Always write a `comment` with what you found. When you reproduced it, give
 the minimal reproduction (files and commands in code blocks) and the exact
 output, and say whether it is still present on the default branch. When you
 did not, say what you ran and what happened, and what would be needed to go
-further. Put long logs inside a `<details>` block. A confirmed reproduction is
-strong evidence for `ready_for_pr`, but every criterion above still applies.
+further. Put long logs inside a `<details>` block.
+
+When you set `create_pr`, your comment is the brief for the PR: state the
+goal and the behaviour to preserve, give the minimal reproduction, which
+the PR should turn into a test, and point to where the cause is, with file
+paths, as far as you found it.
