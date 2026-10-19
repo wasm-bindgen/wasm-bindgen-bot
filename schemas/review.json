@@ -15,7 +15,7 @@
           },
           "line": {
             "type": "integer",
-            "description": "New-file line number inside a diff hunk"
+            "description": "New-file line number, as prefixed on the diff line"
           },
           "start_line": {
             "type": "integer",
@@ -23,11 +23,16 @@
           },
           "body": {
             "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "description": "Exact text of the line at `line`, without the number or diff marker"
           }
         },
         "required": [
           "path",
           "line",
+          "code",
           "body"
         ],
         "additionalProperties": false

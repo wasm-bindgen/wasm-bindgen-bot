@@ -29,26 +29,38 @@ if (result.mode === 'review') {
   const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
   const lines = new Map(files.map(f => [f.filename, commentableLines(f.patch)]));
 
+  // A line number that doesn't land on the diff is re-anchored to the nearest
+  // line with the quoted text, then falls back to a file-level comment.
   const inline = [];
+  const fileLevel = [];
   const extra = [];
   for (const c of output.comments.slice(0, MAX_COMMENTS)) {
-    const valid = lines.get(c.path);
-    const ok =
-      valid?.has(c.line) &&
-      (c.start_line == null || (c.start_line < c.line && valid.has(c.start_line)));
     const body = clean(c.body, 8000);
-    if (!ok) {
-      extra.push(`**\`${c.path}:${c.line}\`**: ${body}`);
+    const valid = lines.get(c.path);
+    if (!valid) {
+      extra.push(`**\`${c.path}\`**: ${body}`);
       continue;
     }
+    let line = c.line;
+    if (valid.get(line)?.trim() !== c.code.trim()) {
+      const matches = [...valid].filter(([, text]) => text.trim() === c.code.trim());
+      matches.sort(([a], [b]) => Math.abs(a - c.line) - Math.abs(b - c.line));
+      line = matches[0]?.[0] ?? (valid.has(line) ? line : null);
+    }
+    if (line == null) {
+      fileLevel.push({ path: c.path, body });
+      continue;
+    }
+    const start = c.start_line != null ? c.start_line + (line - c.line) : null;
     inline.push({
       path: c.path,
-      line: c.line,
+      line,
       side: 'RIGHT',
-      ...(c.start_line != null && { start_line: c.start_line, start_side: 'RIGHT' }),
+      ...(start != null && start < line && valid.has(start) && { start_line: start, start_side: 'RIGHT' }),
       body,
     });
   }
+
   // An approval only covers the commit that was analyzed, and by default only
   // maintainers' PRs, since PR content can steer the model.
   let event = 'COMMENT';
@@ -85,14 +97,29 @@ if (result.mode === 'review') {
     raw: true,
   });
   if (res.status === 422 && inline.length) {
-    console.log(`Inline comments rejected (${await res.text()}), folding into body`);
-    const folded = inline.map(c => `**\`${c.path}:${c.line}\`**: ${c.body}`);
+    console.log(`Inline comments rejected (${await res.text()}), posting them per file`);
     await gh(`/repos/${repo}/pulls/${number}/reviews`, {
       method: 'POST',
-      body: { ...review, body: clean(`${body}\n\n${folded.join('\n\n')}`), comments: [] },
+      body: { ...review, comments: [] },
     });
+    fileLevel.push(...inline.map(c => ({ path: c.path, body: `Line ${c.line}: ${c.body}` })));
   } else if (!res.ok) {
     throw new Error(`posting review: ${res.status} ${await res.text()}`);
+  }
+
+  for (const c of fileLevel) {
+    await gh(`/repos/${repo}/pulls/${number}/comments`, {
+      method: 'POST',
+      body: { ...c, commit_id: result.headSha, subject_type: 'file' },
+    });
+  }
+
+  const unlabel = await gh(`/repos/${repo}/issues/${number}/labels/request-review`, {
+    method: 'DELETE',
+    raw: true,
+  });
+  if (!unlabel.ok && unlabel.status !== 404) {
+    console.log(`Removing request-review label: ${unlabel.status} ${await unlabel.text()}`);
   }
 
   // Only the bot's own open threads may be resolved.

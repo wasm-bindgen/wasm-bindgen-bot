@@ -3,7 +3,7 @@
 // the base branch and a maintainer respectively.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads } from './lib.mjs';
+import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch } from './lib.mjs';
 
 const MAX_DIFF = 400_000;
 const MAINTAINERS = ['OWNER', 'MEMBER', 'COLLABORATOR'];
@@ -20,7 +20,7 @@ function toDiff(files) {
     const from = f.previous_filename || f.filename;
     diff += `diff --git a/${from} b/${f.filename}\n`;
     diff += `status: ${f.status} (+${f.additions} -${f.deletions})\n`;
-    diff += f.patch ? `${f.patch}\n` : '(no patch: binary or too large)\n';
+    diff += f.patch ? `${numberPatch(f.patch)}\n` : '(no patch: binary or too large)\n';
   }
   return diff.length > MAX_DIFF
     ? diff.slice(0, MAX_DIFF) + '\n(diff truncated, read files in ./repo)\n'

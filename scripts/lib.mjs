@@ -90,14 +90,32 @@ export function summary(text) {
 }
 
 // Lines on the new side of each hunk, which are the only ones a review
-// comment can anchor to.
+// comment can anchor to, mapped to their text.
 export function commentableLines(patch) {
-  const lines = new Set();
+  const lines = new Map();
   let n = 0;
   for (const l of (patch || '').split('\n')) {
     const h = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(l);
     if (h) n = +h[1];
-    else if (l[0] === '+' || l[0] === ' ') lines.add(n++);
+    else if (l[0] === '+' || l[0] === ' ') lines.set(n++, l.slice(1));
   }
   return lines;
+}
+
+// Prefixes each new-side line with its file line number, so the model never
+// has to count hunk offsets or confuse them with lines of the patch file.
+export function numberPatch(patch) {
+  let n = 0;
+  return patch
+    .split('\n')
+    .map(l => {
+      const h = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(l);
+      if (h) {
+        n = +h[1];
+        return l;
+      }
+      if (l[0] === '+' || l[0] === ' ') return `${String(n++).padStart(5)} ${l}`;
+      return `      ${l}`;
+    })
+    .join('\n');
 }

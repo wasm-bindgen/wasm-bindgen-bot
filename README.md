@@ -24,12 +24,15 @@ safe for fork PRs.
 
 ## Triggers
 
-- PRs: on open, ready for review and each push, skipping drafts and bots.
-  Later reviews are re-reviews: the model sees its previous review, the
+- PRs: on open and ready for review, skipping drafts and bots. PRs from
+  owners, members and collaborators are also re-reviewed on every push.
+- Adding the `request-review` label to a PR runs a review, and the bot
+  removes the label afterwards. Use it to re-review third-party PRs.
+- Later reviews are re-reviews: the model sees its previous review, the
   changes since, and the review threads, and resolves its own threads once
   they are addressed.
 - Issues: on open.
-- Maintainers (owner, member or collaborator) can comment
+- Maintainers (owner, member or collaborator) can also comment
   `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
   issue to rerun it. Text after the command is passed to the model as a
   request, for example `@wasm-bindgen-bot review focus on the unsafe blocks`.
@@ -39,14 +42,14 @@ safe for fork PRs.
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Then add `.github/workflows/bot.yml`:
+Create a `request-review` label, then add `.github/workflows/bot.yml`:
 
 ```yaml
 name: wasm-bindgen-bot
 
 on:
   pull_request_target:
-    types: [opened, ready_for_review, synchronize]
+    types: [opened, ready_for_review, synchronize, labeled]
   issues:
     types: [opened]
   issue_comment:
@@ -57,9 +60,12 @@ permissions: {}
 jobs:
   analyze:
     if: >-
-      (github.event_name == 'pull_request_target' &&
-        !github.event.pull_request.draft &&
-        github.event.pull_request.user.type != 'Bot') ||
+      (github.event_name == 'pull_request_target' && (
+        (github.event.action == 'labeled' && github.event.label.name == 'request-review') ||
+        (!github.event.pull_request.draft && github.event.pull_request.user.type != 'Bot' && (
+          github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
+          (github.event.action == 'synchronize' &&
+            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)))))) ||
       (github.event_name == 'issues' && github.event.issue.user.type != 'Bot') ||
       (github.event_name == 'issue_comment' &&
         (startsWith(github.event.comment.body, '@wasm-bindgen-bot review') ||
