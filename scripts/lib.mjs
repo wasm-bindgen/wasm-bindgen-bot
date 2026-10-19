@@ -4,17 +4,24 @@ const API = process.env.GITHUB_API_URL || 'https://api.github.com';
 export const repo = process.env.GITHUB_REPOSITORY;
 
 export async function gh(path, { method = 'GET', body, accept, raw } = {}) {
-  const res = await fetch(path.startsWith('http') ? path : `${API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${process.env.GH_TOKEN}`,
-      accept: accept || 'application/vnd.github+json',
-      'x-github-api-version': '2022-11-28',
-      'user-agent': 'wasm-bindgen-bot',
-      ...(body ? { 'content-type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  // GitHub occasionally fails requests with a bare 5xx that succeeds on retry.
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(path.startsWith('http') ? path : `${API}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${process.env.GH_TOKEN}`,
+        accept: accept || 'application/vnd.github+json',
+        'x-github-api-version': '2022-11-28',
+        'user-agent': 'wasm-bindgen-bot',
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (res.status < 500 || attempt === 2) break;
+    console.log(`${method} ${path}: ${res.status}, retrying`);
+    await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+  }
   if (raw) return res;
   if (!res.ok) {
     throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
