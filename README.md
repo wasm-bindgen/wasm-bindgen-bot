@@ -54,7 +54,7 @@ safe for fork PRs. Same-repo PRs use `pull_request` instead.
   topic.
 - Collaborators can also comment
   `@wasm-bindgen-bot review` on a PR or `@wasm-bindgen-bot triage` on an
-  issue to rerun it. Text after the command is passed to the model as a
+  issue to rerun it, or use the shorter `@wbg-bot` alias. Text after the command is passed to the model as a
   request, for example `@wasm-bindgen-bot review focus on the unsafe blocks`.
 
 ## Setup
@@ -92,15 +92,15 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository) ||
         (github.event_name == 'pull_request_target' &&
           github.event.pull_request.head.repo.full_name != github.repository)) && (
-        (github.event.action == 'labeled' && github.event.label.name == 'bot-request-review') ||
+        (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
         (github.event.action != 'labeled' && !github.event.pull_request.draft &&
           github.event.pull_request.user.type != 'Bot'))) ||
       (github.event_name == 'issues' && (
         (github.event.action == 'opened' && github.event.issue.user.type != 'Bot') ||
-        (github.event.action == 'labeled' && github.event.label.name == 'bot-issue-triage'))) ||
+        (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')))) ||
       (github.event_name == 'issue_comment' &&
-        (startsWith(github.event.comment.body, '@wasm-bindgen-bot review') ||
-          startsWith(github.event.comment.body, '@wasm-bindgen-bot triage')))
+        (startsWith(github.event.comment.body, '@wasm-bindgen-bot ') ||
+          startsWith(github.event.comment.body, '@wbg-bot ')))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:

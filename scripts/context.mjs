@@ -52,6 +52,9 @@ let number;
 let request = '';
 let isPr;
 if (name === 'pull_request' || name === 'pull_request_target') {
+  if (event.action === 'labeled' && event.label.name !== 'bot-request-review') {
+    skip(`label ${event.label.name} does not request review`);
+  }
   number = event.pull_request.number;
   isPr = true;
 } else if (name === 'issues') {
@@ -62,7 +65,7 @@ if (name === 'pull_request' || name === 'pull_request_target') {
   isPr = false;
 } else if (name === 'issue_comment') {
   const { body, user } = event.comment;
-  const m = /^@wasm-bindgen-bot\s+(review|triage)\b([\s\S]*)$/.exec(body.trim());
+  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+(review|triage)\b([\s\S]*)$/.exec(body.trim());
   if (!m) skip('comment is not a bot command');
   if (!(await isTrusted(user.login))) skip(`${user.login} is not a collaborator`);
   number = event.issue.number;
