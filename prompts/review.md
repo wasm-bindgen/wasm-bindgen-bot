@@ -57,6 +57,8 @@ author or a maintainer settled in a reply as decided; do not raise them again.
 
 Check each of your open threads in `ctx/threads.md` (marked with an id). If
 the new code addresses it, or a reply convincingly answers it, add it to
+`resolve`, including threads on files that were since renamed or deleted.
+Every concern your summary describes as fixed must have its thread in
 `resolve`. Leave open threads that still apply alone; they stay visible, so
 do not repeat them as new comments.
 
