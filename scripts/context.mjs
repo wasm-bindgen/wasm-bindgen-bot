@@ -37,6 +37,11 @@ async function writeGuide(ref) {
   if (parts.length) writeFileSync(join(dir, 'guide.md'), parts.join('\n\n') + '\n');
 }
 
+async function who(login) {
+  const role = isBot(login) ? 'this bot' : login && (await roleOf(login));
+  return role ? `${login} (${role})` : login ?? 'ghost';
+}
+
 function skip(reason) {
   console.log(`Skipping: ${reason}`);
   writeFileSync(join(dir, 'result.json'), JSON.stringify({ skip: reason }));
@@ -81,7 +86,7 @@ if (isPr) {
 
   writeFileSync(
     join(ctx, 'pr.md'),
-    `# ${pr.title}\n\nAuthor: ${pr.user.login}\n` +
+    `# ${pr.title}\n\nAuthor: ${await who(pr.user.login)}\n` +
       `Base: ${pr.base.ref}\nHead: ${pr.head.label} @ ${pr.head.sha}\n\n` +
       `## Description\n\n${pr.body || '(none)'}\n`
   );
@@ -111,24 +116,29 @@ if (isPr) {
 
   const threads = await reviewThreads(number);
   if (threads.length) {
-    writeFileSync(
-      join(ctx, 'threads.md'),
-      threads
-        .map(t => {
-          const mine = isBot(t.comments.nodes[0]?.author?.login);
-          const state = [t.isResolved ? 'resolved' : 'open', t.isOutdated && 'outdated']
-            .filter(Boolean)
-            .join(', ');
-          const head =
-            `## ${t.path}:${t.line ?? t.originalLine} (${state})` +
-            (mine && !t.isResolved ? `\nYour thread, id: ${t.id}` : '');
-          const body = t.comments.nodes
-            .map(c => `### ${c.author?.login ?? 'ghost'}\n\n${c.body}`)
-            .join('\n\n');
-          return `${head}\n\n${body}\n`;
-        })
-        .join('\n')
-    );
+    let text = '';
+    for (const t of threads) {
+      const mine = isBot(t.comments.nodes[0]?.author?.login);
+      const state = [t.isResolved ? 'resolved' : 'open', t.isOutdated && 'outdated']
+        .filter(Boolean)
+        .join(', ');
+      text +=
+        `## ${t.path}:${t.line ?? t.originalLine} (${state})` +
+        (mine && !t.isResolved ? `\nYour thread, id: ${t.id}` : '') +
+        '\n';
+      for (const c of t.comments.nodes) text += `\n### ${await who(c.author?.login)}\n\n${c.body}\n`;
+      text += '\n';
+    }
+    writeFileSync(join(ctx, 'threads.md'), text);
+  }
+
+  const conversation = await paginate(`/repos/${repo}/issues/${number}/comments`, 100);
+  if (conversation.length) {
+    let text = '';
+    for (const c of conversation) {
+      text += `## ${await who(c.user.login)}, ${c.created_at}\n\n${c.body}\n\n`;
+    }
+    writeFileSync(join(ctx, 'conversation.md'), text);
   }
 
   await writeGuide(pr.base.sha);
@@ -139,10 +149,6 @@ if (isPr) {
   const comments = issue.comments
     ? await paginate(`/repos/${repo}/issues/${number}/comments`, 100)
     : [];
-  const who = async login => {
-    const role = isBot(login) ? 'this bot' : await roleOf(login);
-    return role ? `${login} (${role})` : login;
-  };
   let text =
     `# ${issue.title}\n\nAuthor: ${await who(issue.user.login)}\n` +
     `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
