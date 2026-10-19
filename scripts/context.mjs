@@ -3,7 +3,7 @@
 // the base branch and a maintainer respectively.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { gh, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch, isTrusted, roleOf } from './lib.mjs';
+import { gh, graphql, paginate, fileAt, repo, setOutput, isBot, reviewThreads, numberPatch, isTrusted, roleOf } from './lib.mjs';
 
 const MAX_DIFF = 400_000;
 
@@ -42,6 +42,9 @@ async function who(login) {
   return role ? `${login} (${role})` : login ?? 'ghost';
 }
 
+// Marks the cutoff in an investigation's comment for the PR run it starts.
+const CUTOFF = /<!-- wbg-bot cutoff: (\S+) -->/;
+
 function skip(reason) {
   console.log(`Skipping: ${reason}`);
   writeFileSync(join(dir, 'result.json'), JSON.stringify({ skip: reason }));
@@ -49,8 +52,10 @@ function skip(reason) {
 }
 
 // Every command is either `@wbg-bot <verb>` in a comment or the `bot-<verb>`
-// label, from a collaborator, and applies to either PRs or issues.
-const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'issue' };
+// label, from a collaborator, and applies to PRs, issues or both. `pr` opens
+// a PR for an issue, or updates one of the bot's own PRs.
+const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any' };
+// Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
 let number;
@@ -59,12 +64,14 @@ let mode;
 let requester;
 let label;
 let request = '';
+const meta0 = {};
 if (name === 'pull_request' || name === 'pull_request_target' || name === 'issues') {
   isPr = name !== 'issues';
   number = (isPr ? event.pull_request : event.issue).number;
   if (event.action === 'labeled') {
     label = event.label.name;
     mode = LEGACY_LABELS[label] ?? (label.startsWith('bot-') ? label.slice(4) : null);
+    if (mode === 'ask') mode = null;
     if (!Object.hasOwn(VERBS, mode)) skip(`label ${label} is not a bot command`);
     requester = event.sender.login;
   } else {
@@ -72,24 +79,27 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   }
 } else if (name === 'issue_comment') {
   const { body, user } = event.comment;
-  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+([a-z-]+)\b([\s\S]*)$/.exec(body.trim());
-  if (!m) skip('comment is not a bot command');
-  mode = m[1];
-  if (!Object.hasOwn(VERBS, mode)) skip(`unknown command ${mode}`);
+  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+([\s\S]+)$/.exec(body.trim());
+  if (!m) skip('comment is not to the bot');
+  const verb = /^([a-z-]+)\b([\s\S]*)$/.exec(m[1]);
+  mode = verb && Object.hasOwn(VERBS, verb[1]) ? verb[1] : 'ask';
   requester = user.login;
   number = event.issue.number;
   isPr = !!event.issue.pull_request;
-  request = `${user.login}: ${m[2].trim()}`;
+  request = `${user.login}: ${(mode === 'ask' ? m[1] : verb[2]).trim()}`;
+  meta0.commentUrl = event.comment.html_url;
 } else {
   skip(`unsupported event ${name}`);
 }
-if ((VERBS[mode] === 'pr') !== isPr) skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
+if (mode !== 'ask' && VERBS[mode] !== 'any' && (VERBS[mode] === 'pr') !== isPr) {
+  skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
+}
 // The app itself only adds `bot-pr`, after an investigation a collaborator
-// requested.
-const fromApp = isBot(requester) && mode === 'pr';
+// requested or a review of its own PR, and `bot-review` to its own PRs.
+const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review');
 if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
-const meta = { repo, number, mode, requester, label };
+const meta = { repo, number, mode, requester, label, ...meta0 };
 if (request) writeFileSync(join(dir, 'request.md'), request + '\n');
 
 if (isPr) {
@@ -99,6 +109,17 @@ if (isPr) {
     skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
   }
   meta.headSha = pr.head.sha;
+  if (mode === 'pr') {
+    if (!isBot(pr.user.login) || pr.head.repo?.full_name !== repo) skip('pr only updates the bot\'s own PRs');
+    meta.prompt = 'pr-update';
+    meta.headRef = pr.head.ref;
+    const reviews = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).filter(r => r.body);
+    let text = '';
+    for (const r of reviews) {
+      text += `## ${await who(r.user?.login)}, ${r.state}, ${r.submitted_at}\n\n${r.body}\n\n`;
+    }
+    if (text) writeFileSync(join(ctx, 'reviews.md'), text);
+  }
 
   writeFileSync(
     join(ctx, 'pr.md'),
@@ -110,7 +131,7 @@ if (isPr) {
   const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
   writeFileSync(join(ctx, 'diff.patch'), toDiff(files));
 
-  const previous = (await paginate(`/repos/${repo}/pulls/${number}/reviews`))
+  const previous = mode === 'review' && (await paginate(`/repos/${repo}/pulls/${number}/reviews`))
     // Thread replies show up as reviews with an empty body.
     .filter(r => isBot(r.user?.login) && r.body)
     .at(-1);
@@ -162,16 +183,58 @@ if (isPr) {
 } else {
   const issue = await gh(`/repos/${repo}/issues/${number}`);
   if (issue.state !== 'open') skip('issue is not open');
-  const comments = issue.comments
+  let comments = issue.comments
     ? await paginate(`/repos/${repo}/issues/${number}/comments`, 100)
     : [];
+
+  // Investigations and PRs run code, so they only see the issue as it was
+  // when a collaborator asked for them: later comments and edits by anyone
+  // else are left out. A PR started by an investigation inherits its cutoff
+  // from the investigation's comment.
+  let omitted = 0;
+  if (mode === 'investigate' || mode === 'pr') {
+    let cutoff;
+    if (name === 'issue_comment') {
+      cutoff = event.comment.created_at;
+    } else if (isBot(requester)) {
+      const marked = comments.findLast(c => isBot(c.user.login) && CUTOFF.test(c.body));
+      cutoff = marked && CUTOFF.exec(marked.body)[1];
+    } else {
+      const events = await paginate(`/repos/${repo}/issues/${number}/events`, 3000);
+      cutoff = events.findLast(e => e.event === 'labeled' && e.label?.name === label)?.created_at;
+    }
+    if (!cutoff) skip('could not tell when this was requested');
+    meta.cutoff = cutoff;
+    const [owner, repoName] = repo.split('/');
+    const { repository } = await graphql(
+      `query($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) { issue(number: $number) { lastEditedAt } }
+      }`,
+      { owner, name: repoName, number }
+    );
+    const edited = repository.issue.lastEditedAt;
+    if (edited && edited > cutoff && !(await isTrusted(issue.user.login))) {
+      skip('the issue was edited after this was requested');
+    }
+    const kept = [];
+    for (const c of comments) {
+      if (isBot(c.user.login) || (await isTrusted(c.user.login)) || (c.created_at <= cutoff && c.updated_at <= cutoff)) {
+        kept.push(c);
+      }
+    }
+    omitted = comments.length - kept.length;
+    comments = kept;
+  }
+
   let text =
     `# ${issue.title}\n\nAuthor: ${await who(issue.user.login)}\n` +
     `Labels: ${issue.labels.map(l => l.name).join(', ') || '(none)'}\n\n` +
     `## Body\n\n${issue.body || '(none)'}\n`;
   for (const c of comments) {
-    text += `\n## Comment by ${await who(c.user.login)}, ${c.created_at}\n\n${c.body}\n`;
+    const body = c.body.replace(CUTOFF, '').trim();
+    text += `\n## Comment by ${await who(c.user.login)}, ${c.created_at}\n\n${body}\n`;
   }
+  if (omitted) text += `\n(${omitted} later comments omitted)\n`;
   writeFileSync(join(ctx, 'issue.md'), text);
 
   const labels = await paginate(`/repos/${repo}/labels`);

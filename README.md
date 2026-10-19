@@ -48,6 +48,9 @@ Collaborators run each command by commenting `@wbg-bot <command>` (or
 `@wasm-bindgen-bot <command>`) or by adding the `bot-<command>` label, which
 the bot removes afterwards. Text after a comment command is passed to the
 model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
+Any other comment to the bot, such as `@wbg-bot what happens here if the
+closure is dropped?`, is a question, which it answers read-only with the
+context a review or triage would have.
 
 - `review` (PRs): runs on open and ready for review, skipping drafts and
   bots, and on every push to collaborators' PRs. Use the command to review
@@ -64,9 +67,22 @@ model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
   labels or closes it as triage does. When the issue is ready for a PR, it
   adds `bot-pr`, so its comment becomes the PR's brief. Only triage sets
   `ready-for-pr`.
-- `pr` (issues): implements the issue, or the request in the comment, builds
-  and tests it, and opens a PR from a `wbg-bot/issue-<n>` branch. Changes to
-  workflows are dropped, since the app can't push them.
+- `pr` (issues and the bot's own PRs): on an issue, implements it, or the
+  request in the comment, builds and tests it, and opens a PR from a
+  `wbg-bot/issue-<n>` branch. On one of the bot's PRs, addresses the open
+  review feedback with a new commit, never a force push, and replies in the
+  threads it handled. Changes to workflows are dropped, since the app can't
+  push them.
+
+Bot PRs are locked as resolved, so only collaborators can comment on them,
+and the bot reviews each one after every push. While it has concerns it adds
+`bot-pr` to send the PR back, for up to three rounds, after which it leaves
+the PR to a human. GitHub doesn't let the app approve its own PRs, so a human
+approval is always needed.
+
+Investigations and PRs for issues run code, so they only see the issue as it
+was when a collaborator asked for them: later comments and edits by anyone
+else are left out.
 
 All of them weigh the discussion by project role: core team members vote on
 direction and collaborators review, so their positions settle points over

@@ -74,6 +74,9 @@ runs:
         BOT_REVIEW_MODEL: ${{ inputs.review-model }}
         BOT_REVIEW_EFFORT: ${{ inputs.review-effort }}
         BOT_REVIEW_BUDGET: ${{ inputs.max-budget-usd }}
+        BOT_ASK_MODEL: ${{ inputs.review-model }}
+        BOT_ASK_EFFORT: ${{ inputs.review-effort }}
+        BOT_ASK_BUDGET: ${{ inputs.max-budget-usd }}
         BOT_TRIAGE_MODEL: ${{ inputs.triage-model }}
         BOT_TRIAGE_EFFORT: ${{ inputs.triage-effort }}
         BOT_TRIAGE_BUDGET: ${{ inputs.max-budget-usd }}

@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { gh, graphql, paginate, repo, commentableLines, summary, isBot, reviewThreads, isTrusted } from './lib.mjs';
 
 const MAX_COMMENTS = 25;
+const MAX_ROUNDS = 3;
 const MAX_BODY = 60_000;
 
 const result = JSON.parse(readFileSync(process.env.BOT_RESULT, 'utf8'));
@@ -94,16 +95,35 @@ if (result.mode === 'review') {
       event = 'APPROVE';
     }
   }
-  if (event !== 'APPROVE' && !blockers.length) blockers.push('No reason given.');
+  // GitHub doesn't let the app approve its own PRs. Instead it sends them back
+  // to the PR run with `bot-pr` while it has concerns, up to a limit, after
+  // which they are left for a human.
+  const ownPr = isBot(pr.user.login);
+  let iterate = false;
+  if (ownPr) {
+    event = 'COMMENT';
+    if (output.approve) {
+      blockers.length = 0;
+    } else if (pr.commits - 1 < MAX_ROUNDS) {
+      iterate = true;
+    } else {
+      blockers.push(`Leaving this for a human reviewer after ${MAX_ROUNDS} automated rounds.`);
+    }
+  }
+  if (event !== 'APPROVE' && !(ownPr && output.approve) && !blockers.length) blockers.push('No reason given.');
 
   // An empty summary means nothing to add: approve bare, or post nothing.
-  const silent = !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
+  const silent = !ownPr && !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
 
   // A silent approval the policy downgraded still says why it isn't approved.
   const skip = silent && !output.approve;
   const body = silent && event === 'APPROVE' ? '' : clean(
     output.summary +
-      (event === 'APPROVE' ? '' : `${output.summary.trim() ? '\n\n' : ''}**Requesting changes:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+      (ownPr && output.approve
+        ? `${output.summary.trim() ? '\n\n' : ''}No further concerns; ready for a human review.`
+        : event === 'APPROVE' || !blockers.length
+          ? ''
+          : `${output.summary.trim() ? '\n\n' : ''}**Requesting changes:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
       (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 
@@ -169,6 +189,10 @@ if (result.mode === 'review') {
     );
     resolved++;
   }
+  if (iterate) {
+    await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-pr'] } });
+  }
+
   // Only questions where a collaborator has the last word get an answer.
   let replied = 0;
   for (const { thread_id, body } of (output.replies ?? []).slice(0, MAX_COMMENTS)) {
@@ -191,6 +215,15 @@ if (result.mode === 'review') {
   summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
 } else if (result.mode === 'pr') {
   await postPr();
+} else if (result.mode === 'ask') {
+  const answer = String(output.answer).trim();
+  if (answer) {
+    await gh(`/repos/${repo}/issues/${number}/comments`, {
+      method: 'POST',
+      body: { body: clean(`Answering ${result.requester} in ${result.commentUrl}:\n\n${answer}`) },
+    });
+  }
+  summary(`Answered a question on #${number}`);
 } else {
   // Labels the bot controls itself are only set from their dedicated fields.
   const controlled = l => l === 'ready-for-pr' || l.startsWith('bot-');
@@ -216,9 +249,10 @@ if (result.mode === 'review') {
     comment = `This looks like a duplicate of #${dup}.${comment ? `\n\n${comment}` : ''}`;
   }
   if (comment) {
+    const marker = createPr && result.cutoff ? `\n\n<!-- wbg-bot cutoff: ${result.cutoff} -->` : '';
     await gh(`/repos/${repo}/issues/${number}/comments`, {
       method: 'POST',
-      body: { body: clean(comment) },
+      body: { body: clean(comment) + marker },
     });
   }
   // Closing is only explained by the comment, so never close silently.
@@ -243,24 +277,8 @@ if (result.mode === 'review') {
   summary(`${triage ? `Triaged #${number}: ready-for-pr ${ready}` : `Investigated #${number} (${output.reproduced}): PR ${createPr && !!comment}`}, labels [${labels.join(', ')}], comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
 }
 
-// Commits the files the model changed onto the base commit through the Git
-// Data API, pushes them to a new branch and opens a PR for the issue.
-async function postPr() {
-  if (result.label) await unlabel(result.label);
-  const issue = await gh(`/repos/${repo}/issues/${number}`);
-  if (issue.state !== 'open') {
-    console.log('Issue was closed, not opening a PR');
-    return;
-  }
-  const comment = output.comment?.trim();
-  if (!result.files?.length) {
-    if (comment) {
-      await gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(comment) } });
-    }
-    summary(`No changes for #${number}${comment ? ', commented' : ''}`);
-    return;
-  }
-
+// Commits the files the model changed onto the commit they were based on.
+async function commitFiles(message) {
   const base = await gh(`/repos/${repo}/git/commits/${result.baseSha}`);
   const tree = [];
   for (const f of result.files) {
@@ -278,12 +296,36 @@ async function postPr() {
     method: 'POST',
     body: { base_tree: base.tree.sha, tree },
   });
-  const title = String(output.title).trim().slice(0, 200);
-  const commit = await gh(`/repos/${repo}/git/commits`, {
+  return gh(`/repos/${repo}/git/commits`, {
     method: 'POST',
-    body: { message: `${title}\n\nCloses #${number}`, tree: newTree.sha, parents: [result.baseSha] },
+    body: { message, tree: newTree.sha, parents: [result.baseSha] },
   });
+}
 
+const comment = body =>
+  gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(body) } });
+
+// Opens a PR for an issue, or adds a commit to one of the bot's own PRs. Bot
+// PRs are locked so only collaborators can comment on them, and are then
+// reviewed by the bot, which can send them back with `bot-pr`.
+async function postPr() {
+  if (result.label) await unlabel(result.label);
+  if (result.headRef) return updatePr();
+
+  const issue = await gh(`/repos/${repo}/issues/${number}`);
+  if (issue.state !== 'open') {
+    console.log('Issue was closed, not opening a PR');
+    return;
+  }
+  const note = output.comment?.trim();
+  if (!result.files?.length) {
+    if (note) await comment(note);
+    summary(`No changes for #${number}${note ? ', commented' : ''}`);
+    return;
+  }
+
+  const title = String(output.title).trim().slice(0, 200);
+  const commit = await commitFiles(`${title}\n\nCloses #${number}`);
   let branch = `wbg-bot/issue-${number}`;
   let ref = await gh(`/repos/${repo}/git/refs`, {
     method: 'POST',
@@ -309,5 +351,56 @@ async function postPr() {
     method: 'POST',
     body: { title, head: branch, base: result.baseRef, body: clean(body) },
   });
+  await gh(`/repos/${repo}/issues/${pr.number}/lock`, { method: 'PUT', body: { lock_reason: 'resolved' } });
+  await gh(`/repos/${repo}/issues/${pr.number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
   summary(`Opened ${pr.html_url} for #${number} with ${result.files.length} files`);
+}
+
+async function updatePr() {
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (pr.state !== 'open' || pr.head.sha !== result.baseSha) {
+    console.log(`Not pushing: PR is ${pr.state} at ${pr.head.sha}, worked on ${result.baseSha}`);
+    return;
+  }
+  let sha = null;
+  if (result.files?.length) {
+    const commit = await commitFiles(String(output.commit_message).trim() || 'Address review feedback');
+    // Never a force push: if the branch moved meanwhile, this fails.
+    await gh(`/repos/${repo}/git/refs/heads/${result.headRef}`, {
+      method: 'PATCH',
+      body: { sha: commit.sha, force: false },
+    });
+    sha = commit.sha;
+  }
+
+  // Threads the bot started are resolved once addressed by a commit; other
+  // reviewers' threads only get a reply, for them to resolve.
+  const threads = new Map((await reviewThreads(number)).map(t => [t.id, t]));
+  let replied = 0;
+  for (const { thread_id, reply } of (output.addressed ?? []).slice(0, MAX_COMMENTS)) {
+    const t = threads.get(thread_id);
+    if (!t || t.isResolved) continue;
+    const resolve = sha && isBot(t.comments.nodes[0]?.author?.login);
+    await graphql(
+      `mutation($id: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) {
+          clientMutationId
+        }
+      }`,
+      { id: thread_id, body: clean(sha ? `In ${sha.slice(0, 7)}: ${reply}` : reply, 8000) }
+    );
+    if (resolve) {
+      await graphql(
+        `mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { clientMutationId } }`,
+        { id: thread_id }
+      );
+    }
+    replied++;
+  }
+  const note = output.comment?.trim();
+  if (note) await comment(note);
+  if (sha) {
+    await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
+  }
+  summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
 }

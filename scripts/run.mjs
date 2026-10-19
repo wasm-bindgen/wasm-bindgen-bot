@@ -14,7 +14,7 @@ const ghToken = process.env.BOT_GH_TOKEN;
 const setting = name => process.env[`BOT_${meta.mode.toUpperCase()}_${name}`];
 
 // Modes that run code get a sandbox and more time.
-const MINUTES = { review: 15, triage: 15, investigate: 45, pr: 75 };
+const MINUTES = { review: 15, triage: 15, ask: 15, investigate: 45, pr: 75 };
 const executes = meta.mode === 'investigate' || meta.mode === 'pr';
 const SANDBOX_USER = 'wbg-sandbox';
 const SANDBOX_HOME = `/home/${SANDBOX_USER}`;
@@ -22,7 +22,9 @@ const sandboxRepo = `${SANDBOX_HOME}/work/repo`;
 
 const read = p => (existsSync(p) ? readFileSync(p, 'utf8').trim() : '');
 const promptFile = name => readFileSync(join(root, 'prompts', `${name}.md`), 'utf8').trim();
-let prompt = promptFile(meta.mode)
+// Questions on PRs see what a review sees, and on issues what triage sees.
+const name = meta.mode === 'ask' ? (meta.headSha ? 'ask-pr' : 'ask-issue') : (meta.prompt ?? meta.mode);
+let prompt = promptFile(name)
   .replace(/\{\{include:([a-z-]+)\}\}/g, (_, name) => promptFile(name))
   .replaceAll('{{repo}}', meta.repo)
   .replaceAll('{{number}}', String(meta.number));
@@ -31,7 +33,7 @@ if (guide) prompt += `\n\n## Repository guide (from the base branch)\n\n${guide}
 const request = read(join(dir, 'request.md'));
 if (request) prompt += `\n\n## Maintainer request\n\n${request}\n`;
 
-const schema = readFileSync(join(root, 'schemas', `${meta.mode}.json`), 'utf8');
+const schema = readFileSync(join(root, 'schemas', `${meta.mode === 'ask' ? 'ask' : name}.json`), 'utf8');
 const redact = s => String(s).split(token).join('***').split(ghToken).join('***');
 
 function run(cmd, args, opts = {}) {

@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "commit_message": {
+      "type": "string",
+      "description": "Commit message for your changes, a short summary line then optional detail"
+    },
+    "addressed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "thread_id": { "type": "string" },
+          "reply": {
+            "type": "string",
+            "description": "What you changed for this thread, or why you did not"
+          }
+        },
+        "required": ["thread_id", "reply"],
+        "additionalProperties": false
+      },
+      "description": "Review threads you acted on"
+    },
+    "comment": {
+      "type": ["string", "null"],
+      "description": "Comment for the PR about feedback outside review threads, or null"
+    }
+  },
+  "required": ["commit_message", "addressed", "comment"],
+  "additionalProperties": false
+}

@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "Your answer in GitHub markdown"
+    }
+  },
+  "required": ["answer"],
+  "additionalProperties": false
+}
