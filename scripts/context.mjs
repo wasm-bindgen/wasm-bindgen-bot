@@ -76,7 +76,8 @@ if (isPr) {
   writeFileSync(join(ctx, 'diff.patch'), toDiff(files));
 
   const previous = (await paginate(`/repos/${repo}/pulls/${number}/reviews`))
-    .filter(r => isBot(r.user?.login))
+    // Thread replies show up as reviews with an empty body.
+    .filter(r => isBot(r.user?.login) && r.body)
     .at(-1);
   if (previous) {
     meta.previousSha = previous.commit_id;

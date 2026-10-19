@@ -31,6 +31,8 @@ runs:
         repositories: ${{ github.event.repository.name }}
         permission-issues: write
         permission-pull-requests: write
+        # resolveReviewThread is only allowed with contents: write.
+        permission-contents: write
 
     - shell: bash
       env:

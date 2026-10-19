@@ -13,7 +13,8 @@ Each run has two jobs:
 - **post** validates that output and posts it as the `wasm-bindgen-bot` app: a
   single review anchored to diff lines, or existing labels and a comment on an
   issue. Reviews are comments or approvals, never change requests. It holds
-  an app token scoped to issues and pull requests, and never runs a model.
+  an app token scoped to issues, pull requests and contents (which GitHub
+  requires to resolve review threads), and never runs a model.
 
 Approval is limited to the analyzed head commit and, by default, to PRs from
 collaborators. Set the `post` action's `approve` input to `all` or `never` to
