@@ -79,8 +79,9 @@ Anyone can comment on bot PRs, but the runs that review and update them only
 see comments from collaborators and the bot itself. The bot reviews each one
 after every push. While it has concerns it adds
 `bot-pr` to send the PR back, for up to three rounds, after which it leaves
-the PR to a human. GitHub doesn't let the app approve its own PRs, so a human
-approval is always needed.
+the PR to a human. GitHub doesn't let the app approve its own PRs, so once it has no
+concerns it adds `merge-ready` instead, and removes it again if a later
+review finds some. A human approval is always needed.
 
 Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone
@@ -100,7 +101,7 @@ those of other participants.
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr` and `ready-for-pr` labels,
+Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `ready-for-pr` and `merge-ready` labels,
 then add `.github/workflows/bot.yml`:
 
 ```yaml

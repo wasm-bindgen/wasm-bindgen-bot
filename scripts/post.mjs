@@ -192,6 +192,12 @@ if (result.mode === 'review') {
   if (iterate) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-pr'] } });
   }
+  // On its own PRs, `merge-ready` stands in for the approval the bot can't give.
+  if (ownPr && output.approve) {
+    await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['merge-ready'] } });
+  } else if (ownPr) {
+    await unlabel('merge-ready');
+  }
 
   // Only questions where a collaborator has the last word get an answer.
   let replied = 0;
@@ -248,7 +254,7 @@ if (result.mode === 'review') {
   summary(`Answered a question on #${number}`);
 } else {
   // Labels the bot controls itself are only set from their dedicated fields.
-  const controlled = l => l === 'ready-for-pr' || l.startsWith('bot-');
+  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
   const dup = Number.isInteger(output.duplicate_of) && output.duplicate_of !== number ? output.duplicate_of : null;
   const close = output.close === 'duplicate' && !dup ? null : output.close;
   // Only triage marks issues ready; an investigation starts the PR itself.
