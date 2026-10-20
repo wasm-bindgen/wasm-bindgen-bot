@@ -149,14 +149,15 @@ const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', 
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
-// After a push to the default branch, auto-merge PRs that it left
-// conflicting get `bot-rebase`. GitHub computes mergeability lazily, so each
+// After a push to the default branch, auto-merge PRs and the bot's own PRs
+// that it left conflicting get `bot-rebase`. GitHub computes mergeability lazily, so each
 // is polled until it is known.
 if (name === 'push') {
   const { default_branch } = await gh(`/repos/${repo}`);
   if (event.ref !== `refs/heads/${default_branch}`) skip('not the default branch');
   const waiting = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
-    p => p.auto_merge && p.head.repo?.full_name === repo && !p.labels.some(l => l.name === 'bot-rebase')
+    p => (p.auto_merge || isBot(p.user.login)) && p.head.repo?.full_name === repo &&
+      !p.labels.some(l => l.name === 'bot-rebase')
   );
   const conflicting = [];
   for (const p of waiting) {
@@ -168,7 +169,7 @@ if (name === 'push') {
     }
     if (pr.mergeable === false) conflicting.push(p.number);
   }
-  if (!conflicting.length) skip('no auto-merge PRs are conflicting');
+  if (!conflicting.length) skip('no auto-merge or bot PRs are conflicting');
   writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting }));
   process.exit(0);
 }

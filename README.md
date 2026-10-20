@@ -106,8 +106,8 @@ else are left out.
   the request describes, written from the discussion and the code, and
   replies with its link, or points to an existing issue that covers it.
 
-After every push to the default branch, open auto-merge PRs that it left
-conflicting get `bot-rebase`.
+After every push to the default branch, open auto-merge PRs and the bot's own
+PRs that it left conflicting get `bot-rebase`.
 
 Commands can also be run from the Actions tab with "Run workflow" on the
 bot's workflow, choosing the command, the issue or PR number and a request.
