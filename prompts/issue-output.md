@@ -22,6 +22,8 @@
   - a bug report lacks what is needed to reproduce it (versions, a minimal
     example, the exact error), and ask for exactly what is missing;
   - you found a likely duplicate, and briefly say why;
+  - the cause is in a dependency or upstream project: link what you found
+    there, as below;
   - you can point to the specific code involved or to a documented answer,
     with file paths, which helps the reporter or a maintainer;
   - the issue is close to ready but something is unresolved: name exactly
@@ -30,6 +32,13 @@
   - the issue is ready for a PR, as described below, and no earlier comment
     states the agreed goal: state it, with any constraints from the
     discussion, in one or two sentences, so the PR aims at exactly that.
+
+When the cause lies in a dependency or another upstream project, check its
+repository with the `get` tool before commenting: existing issues and PRs
+about the problem, and fixes already on its default branch but not yet in a
+release (compare it with the latest published version). Link what you find,
+and say whether the fix needs an upstream release, a dependency bump here, or
+a change in this repository instead.
 
 Give file paths relative to the repository root, without the `repo/` prefix.
 Keep comments short, friendly and concrete. Do not thank the reporter
