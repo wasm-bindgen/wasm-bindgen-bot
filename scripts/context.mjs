@@ -279,21 +279,42 @@ if (mode === 'rebase') {
     pr = byHead.get(pr.base.ref);
     if (pr.labels.some(l => l.name === 'bot-rebase')) skip(`#${pr.number} below it is being rebased with its stack`);
   }
+  // Once the PR below the bottom layer has merged, the bottom layer is
+  // unstacked: moved onto the default branch if it isn't already, dropping
+  // the merged PR's commits, which a squash merge leaves on the branch.
+  const merged = (await paginate(`/repos/${repo}/pulls?state=closed&sort=updated&direction=desc`, 100)).filter(
+    p => p.merged_at && p.number !== pr.number && p.head.sha !== pr.head.sha
+  );
+  let baseRef = pr.base.ref;
+  let upstream = null;
+  let retarget = null;
+  const lower = merged.find(p => p.head.ref === pr.base.ref && p.head.repo?.full_name === repo);
+  if (lower) {
+    baseRef = retarget = (await gh(`/repos/${repo}`)).default_branch;
+    upstream = lower;
+  } else {
+    const { commits = [] } = await gh(`/repos/${repo}/compare/${pr.base.sha}...${pr.head.sha}?per_page=250`);
+    const order = new Map(commits.map((c, i) => [c.sha, i]));
+    upstream = merged.filter(p => order.has(p.head.sha)).sort((a, b) => order.get(b.head.sha) - order.get(a.head.sha))[0];
+  }
   const stack = [];
   const queue = [{ pr, parent: null }];
-  let text = `Base branch: ${pr.base.ref}\n\nLayers, bottom up:\n`;
+  let text = `Base branch: ${baseRef}\n\nLayers, bottom up:\n`;
   while (queue.length) {
     const { pr: p, parent } = queue.shift();
-    stack.push({ number: p.number, headRef: p.head.ref, headSha: p.head.sha, parent });
+    const from = !parent && upstream ? upstream.head.sha : null;
+    stack.push({ number: p.number, headRef: p.head.ref, headSha: p.head.sha, parent, ...(from && { upstream: from }) });
     text +=
       `\n## #${p.number}: ${p.title}\n\nBranch: ${p.head.ref} @ ${p.head.sha}\n` +
-      `Rebase onto: ${parent ? `the rebased ${parent}` : pr.base.ref}\n\n${p.body || '(no description)'}\n`;
+      `Rebase onto: ${parent ? `the rebased ${parent}` : baseRef}\n` +
+      (from ? `Rebase from: ${from}, the head of #${upstream.number}, which merged; drop its commits\n` : '') +
+      `\n${p.body || '(no description)'}\n`;
     for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
   }
-  Object.assign(meta, { baseRef: pr.base.ref, stack });
+  Object.assign(meta, { baseRef, stack, ...(retarget && { retarget }) });
   writeFileSync(join(ctx, 'stack.md'), text);
-  await writeGuide(pr.base.ref);
-  setOutput('checkout-ref', pr.base.ref);
+  await writeGuide(baseRef);
+  setOutput('checkout-ref', baseRef);
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
   setOutput('mode', meta.mode);
   process.exit(0);

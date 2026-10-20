@@ -95,7 +95,9 @@ else are left out.
   them keeping the intent of both sides, then builds and tests. A PR in a
   stack, whose base is another open PR's branch, is rebased with its whole
   stack, bottom up; a request on a layer above one that is already being
-  rebased is skipped. The rebased branches come back as a git bundle, and
+  rebased is skipped. Once the PR below a stack's bottom layer has merged, the
+  bottom layer is unstacked: moved onto the default branch, without the
+  merged PR's commits. The rebased branches come back as a git bundle, and
   are force-pushed in one atomic push only if nobody pushed meanwhile.
   Rebases go through without a comment or a review, unless resolving a
   conflict took a judgment call, such as choosing one side's behaviour. Then

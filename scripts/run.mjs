@@ -288,7 +288,9 @@ function rebaseWithoutModel() {
     const parent = stack.find(p => p.headRef === l.parent);
     const r = parent
       ? git('rebase', '-q', '--onto', `bot-rebased/${parent.headRef}`, parent.headSha)
-      : git('rebase', '-q', `origin/${baseRef}`);
+      : l.upstream
+        ? git('rebase', '-q', '--onto', `origin/${baseRef}`, l.upstream)
+        : git('rebase', '-q', `origin/${baseRef}`);
     if (r.status !== 0) {
       console.log(`#${l.number} conflicts; handing the rebase to the model`);
       git('rebase', '--abort');

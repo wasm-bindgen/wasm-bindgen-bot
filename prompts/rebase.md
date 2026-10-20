@@ -28,6 +28,9 @@ For each layer in order, bottom up, create the branch
 `bot-rebased/<branch>` at the layer's commit and rebase it: the bottom layer
 onto `origin/<base>`, and each layer above onto the rebased branch of the
 layer below, with `git rebase --onto bot-rebased/<lower> <lower's old commit>`.
+When the bottom layer has a "Rebase from" commit, the head of a PR below it
+that has since merged, rebase only the commits after it, with
+`git rebase --onto origin/<base> <that commit>`.
 Keep each layer's commits, messages and authors; resolve conflicts commit by
 commit and continue with `git rebase --continue`.
 

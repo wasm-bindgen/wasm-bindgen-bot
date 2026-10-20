@@ -548,6 +548,11 @@ async function rebase() {
     }
     throw new Error(`push failed: ${err}`);
   }
+  if (result.retarget) {
+    const bottom = stack.find(l => !l.parent);
+    const res = await gh(`/repos/${repo}/pulls/${bottom.number}`, { method: 'PATCH', body: { base: result.retarget }, raw: true });
+    if (!res.ok) console.log(`Moving #${bottom.number} onto ${result.retarget}: ${res.status} ${await res.text()}`);
+  }
 
   for (const layer of output.layers ?? []) {
     const l = changed.find(c => c.number === layer.number);
