@@ -46,8 +46,9 @@ what guards the app's write access.
 
 Collaborators run each command by commenting `@wbg-bot <command>` (or
 `@wasm-bindgen-bot <command>`) or by adding the `bot-<command>` label, which
-the bot removes afterwards. Text after a comment command is passed to the
-model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
+the bot removes afterwards. The mention can be anywhere in a comment, outside
+code and quoted lines, and the rest of the comment after it is the command.
+Text after a comment command is passed to the model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
 Any other comment to the bot, such as `@wbg-bot what happens here if the
 closure is dropped?`, is a question, which it answers read-only with the
 context a review or triage would have. In a review thread on a same-repo
@@ -188,8 +189,8 @@ jobs:
       ((github.event_name == 'issue_comment' ||
         (github.event_name == 'pull_request_review_comment' &&
           github.event.pull_request.head.repo.full_name == github.repository)) &&
-        (startsWith(github.event.comment.body, '@wasm-bindgen-bot ') ||
-          startsWith(github.event.comment.body, '@wbg-bot '))) ||
+        (contains(github.event.comment.body, '@wasm-bindgen-bot') ||
+          contains(github.event.comment.body, '@wbg-bot'))) ||
       (github.event_name == 'pull_request_review' &&
         github.event.review.state == 'approved' &&
         github.event.review.user.type != 'Bot' &&

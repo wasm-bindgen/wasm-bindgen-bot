@@ -120,8 +120,17 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   }
 } else if (name === 'issue_comment' || name === 'pull_request_review_comment') {
   const { body, user } = event.comment;
-  const m = /^@(?:wasm-bindgen-bot|wbg-bot)\s+([\s\S]+)$/.exec(body.trim());
+  // The bot can be addressed anywhere in a comment, taking the rest of it as
+  // the command, but not from code or quotes, so quoting a command in a reply
+  // doesn't run it again.
+  const prose = body
+    .replace(/```[\s\S]*?```|`[^`\n]*`/g, '')
+    .split('\n')
+    .filter(l => !/^\s*>/.test(l))
+    .join('\n');
+  const m = /(?:^|[^\w@/-])@(?:wasm-bindgen-bot|wbg-bot)(?![\w\-[])[\s,:]+(\S[\s\S]*)$/.exec(prose);
   if (!m) skip('comment is not to the bot');
+  m[1] = m[1].trim();
   const verb = /^([a-z-]+)\b([\s\S]*)$/.exec(m[1]);
   mode = verb && Object.hasOwn(VERBS, verb[1]) ? verb[1] : 'ask';
   requester = user.login;
