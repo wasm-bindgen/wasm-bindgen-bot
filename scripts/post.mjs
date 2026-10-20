@@ -345,21 +345,23 @@ async function postPr() {
   if (result.label) await unlabel(result.label);
   if (result.headRef) return updatePr();
 
-  const issue = await gh(`/repos/${repo}/issues/${number}`);
-  if (issue.state !== 'open') {
+  // Without an issue, the PR comes from a request made in the Actions tab.
+  const forIssue = number !== null;
+  if (forIssue && (await gh(`/repos/${repo}/issues/${number}`)).state !== 'open') {
     console.log('Issue was closed, not opening a PR');
     return;
   }
   const note = output.comment?.trim();
   if (!result.files?.length) {
-    if (note) await comment(note);
-    summary(`No changes for #${number}${note ? ', commented' : ''}`);
+    if (note && forIssue) await comment(note);
+    summary(`No changes${forIssue ? ` for #${number}` : ''}${note ? `: ${note}` : ''}`);
     return;
   }
 
   const title = String(output.title).trim().slice(0, 200);
-  const commit = await commitFiles(`${title}\n\nCloses #${number}`);
-  let branch = `wbg-bot/issue-${number}`;
+  const commit = await commitFiles(forIssue ? `${title}\n\nCloses #${number}` : title);
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+  let branch = forIssue ? `wbg-bot/issue-${number}` : `wbg-bot/${slug || 'change'}`;
   let ref = await gh(`/repos/${repo}/git/refs`, {
     method: 'POST',
     raw: true,
@@ -376,16 +378,16 @@ async function postPr() {
   if (!ref.ok) throw new Error(`creating ${branch}: ${ref.status} ${await ref.text()}`);
 
   let body = String(output.body).trim();
-  if (!new RegExp(`#${number}\\b`).test(body)) body += `\n\nCloses #${number}`;
+  if (forIssue && !new RegExp(`#${number}\\b`).test(body)) body += `\n\nCloses #${number}`;
   body += isBot(result.requester)
     ? `\n\n_Started from the investigation in #${number}._`
-    : `\n\n_Requested by ${result.requester}._`;
+    : `\n\n_Requested by ${result.requester}${forIssue ? '' : ' from the Actions tab'}._`;
   const pr = await gh(`/repos/${repo}/pulls`, {
     method: 'POST',
     body: { title, head: branch, base: result.baseRef, body: clean(body) },
   });
   await gh(`/repos/${repo}/issues/${pr.number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
-  summary(`Opened ${pr.html_url} for #${number} with ${result.files.length} files`);
+  summary(`Opened ${pr.html_url}${forIssue ? ` for #${number}` : ''} with ${result.files.length} files`);
 }
 
 async function updatePr() {

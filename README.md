@@ -95,6 +95,10 @@ else are left out.
   comments with the conflicting files instead. The bot's own pushes don't
   trigger re-reviews.
 
+Commands can also be run from the Actions tab with "Run workflow" on the
+bot's workflow, choosing the command, the issue or PR number and a request.
+Without a number, `pr` opens a PR from the request alone.
+
 A collaborator's approval of a same-repo PR also enables squash auto-merge,
 unless the PR is a draft or labelled "do not land", so it lands once checks
 pass. Approvals by the bot itself never do. Auto-merge has to be allowed in
@@ -111,7 +115,7 @@ secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
 Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
 and an Actions event policy (Settings → Actions → Policies) scoped to
-`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `issues`, `issue_comment`,
+`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `workflow_dispatch`, `issues`, `issue_comment`,
 `pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
 default policy blocks `pull_request_target` in public repositories from
 November 2, 2026, so fork PRs would no longer be reviewed. Then add
@@ -137,6 +141,20 @@ on:
   # Likewise same-repo only: a collaborator's approval enables auto-merge.
   pull_request_review:
     types: [submitted]
+  # Runs a command from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Command to run
+        type: choice
+        options: [pr, investigate, triage, review, rebase]
+        default: pr
+      number:
+        description: Issue or PR number, optional for pr
+        required: false
+      request:
+        description: Instructions for the bot
+        required: false
 
 permissions: {}
 
@@ -160,13 +178,14 @@ jobs:
       (github.event_name == 'pull_request_review' &&
         github.event.review.state == 'approved' &&
         github.event.review.user.type != 'Bot' &&
-        github.event.pull_request.head.repo.full_name == github.repository)
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
       # Comment and approval runs start before the bot checks who wrote them,
       # so they get their own group rather than cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || '' }}
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || '' }}
       cancel-in-progress: true
     permissions:
       contents: read

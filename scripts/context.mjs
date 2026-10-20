@@ -105,6 +105,23 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   if (name === 'pull_request_review_comment') meta0.threadComment = event.comment.id;
   request = `${user.login}: ${(mode === 'ask' ? m[1] : verb[2]).trim()}`;
   meta0.commentUrl = event.comment.html_url;
+} else if (name === 'workflow_dispatch') {
+  // Run from the Actions tab. Without a number, `pr` works from the request
+  // alone.
+  const inputs = event.inputs ?? {};
+  mode = inputs.command;
+  if (!Object.hasOwn(VERBS, mode)) skip(`unknown command ${mode}`);
+  requester = event.sender.login;
+  if (inputs.request?.trim()) request = `${requester}: ${inputs.request.trim()}`;
+  if (inputs.number?.trim()) {
+    number = Number(inputs.number.trim().replace(/^#/, ''));
+    if (!Number.isInteger(number)) skip(`invalid number ${inputs.number}`);
+    isPr = !!(await gh(`/repos/${repo}/issues/${number}`)).pull_request;
+  } else {
+    if (mode !== 'pr' || !request) skip('without a number, only pr with a request is supported');
+    number = null;
+    isPr = false;
+  }
 } else {
   skip(`unsupported event ${name}`);
 }
@@ -142,6 +159,18 @@ if (mode === 'rebase') {
     for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
   }
   writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...meta, baseRef: pr.base.ref, stack }));
+  process.exit(0);
+}
+
+if (number === null) {
+  const { default_branch } = await gh(`/repos/${repo}`);
+  meta.prompt = 'pr-request';
+  meta.baseRef = default_branch;
+  await writeGuide(default_branch);
+  setOutput('checkout-ref', default_branch);
+  writeFileSync(join(dir, 'request.md'), request + '\n');
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
+  setOutput('mode', meta.mode);
   process.exit(0);
 }
 
@@ -257,6 +286,8 @@ if (isPr) {
     let cutoff;
     if (name === 'issue_comment') {
       cutoff = event.comment.created_at;
+    } else if (name === 'workflow_dispatch') {
+      cutoff = new Date().toISOString();
     } else if (isBot(requester)) {
       const marked = comments.findLast(c => isBot(c.user.login) && CUTOFF.test(c.body));
       cutoff = marked && CUTOFF.exec(marked.body)[1];
