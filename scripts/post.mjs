@@ -422,7 +422,6 @@ async function postPr() {
     method: 'POST',
     body: { title, head: branch, base: result.baseRef, body: clean(body) },
   });
-  await gh(`/repos/${repo}/issues/${pr.number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
   summary(`Opened ${pr.html_url}${forIssue ? ` for #${number}` : ''} with ${result.files.length} files`);
 }
 
@@ -469,9 +468,6 @@ async function updatePr() {
   }
   const note = output.comment?.trim();
   if (note) await comment(note);
-  if (sha) {
-    await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
-  }
   summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
 }
 

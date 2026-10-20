@@ -256,8 +256,8 @@ if (mode !== 'ask' && VERBS[mode] !== 'any' && (VERBS[mode] === 'pr') !== isPr) 
   skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
 }
 // The app itself only adds `bot-pr`, after an investigation a collaborator
-// requested or a review of its own PR, `bot-review` to the PRs it opens and to
-// PRs whose rebase took decisions, and `bot-rebase` to auto-merge and its own
+// requested or a review of its own PR, `bot-review` to PRs whose rebase took
+// decisions, and `bot-rebase` to auto-merge and its own
 // PRs that a merge left conflicting.
 const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review' || mode === 'rebase');
 if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
