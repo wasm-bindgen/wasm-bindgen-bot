@@ -100,8 +100,8 @@ else are left out.
   Rebases go through without a comment or a review, unless resolving a
   conflict took a judgment call, such as choosing one side's behaviour. Then
   the bot comments with those decisions, turns off auto-merge, since the
-  approval predates them, and reviews the PR. The bot's own pushes don't
-  otherwise trigger re-reviews.
+  approval predates them, and reviews the PR. The bot's rebases don't
+  otherwise trigger re-reviews; its other pushes are reviewed like anyone's.
 - `issue` (issues and PRs, with a request): opens a new issue for a follow-on
   the request describes, written from the discussion and the code, and
   replies with its link, or points to an existing issue that covers it.
@@ -184,7 +184,8 @@ jobs:
       (github.event_name == 'pull_request_target' && (
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
         (github.event.action != 'labeled' && !github.event.pull_request.draft &&
-          github.event.pull_request.user.type != 'Bot'))) ||
+          (github.event.pull_request.user.type != 'Bot' ||
+            github.event.pull_request.user.login == 'wasm-bindgen-bot[bot]')))) ||
       (github.event_name == 'issues' && (
         (github.event.action == 'opened' && github.event.issue.user.type != 'Bot') ||
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')))) ||

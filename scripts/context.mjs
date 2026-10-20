@@ -256,9 +256,9 @@ if (mode !== 'ask' && VERBS[mode] !== 'any' && (VERBS[mode] === 'pr') !== isPr) 
   skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
 }
 // The app itself only adds `bot-pr`, after an investigation a collaborator
-// requested or a review of its own PR, `bot-review` to its own PRs and to PRs
-// whose conflicts it resolved, and `bot-rebase` to auto-merge PRs that a
-// merge left conflicting.
+// requested or a review of its own PR, `bot-review` to the PRs it opens and to
+// PRs whose rebase took decisions, and `bot-rebase` to auto-merge and its own
+// PRs that a merge left conflicting.
 const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review' || mode === 'rebase');
 if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
@@ -317,9 +317,13 @@ const followOn = mode === 'ask' || mode === 'issue';
 if (isPr) {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open' && !followOn) skip('PR is not open');
-  // The bot's own pushes, such as rebases, only move the PR onto newer code.
-  if (event.action === 'synchronize' && isBot(event.sender?.login)) skip('push by the bot');
-  if (event.action === 'synchronize' && !(await isTrusted(pr.user.login))) {
+  // The bot's rebases only move the PR onto newer code; its other pushes are
+  // reviewed like anyone's. Rebases that took decisions ask for a review.
+  if (event.action === 'synchronize' && isBot(event.sender?.login)) {
+    const res = await gh(`/repos/${repo}/compare/${event.before}...${event.after}`, { raw: true });
+    if (!res.ok || (await res.json()).status !== 'ahead') skip('rebase by the bot');
+  }
+  if (event.action === 'synchronize' && !isBot(pr.user.login) && !(await isTrusted(pr.user.login))) {
     skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
   }
   meta.headSha = pr.head.sha;
