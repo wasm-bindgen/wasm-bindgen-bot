@@ -110,7 +110,13 @@ The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
 Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
-then add `.github/workflows/bot.yml`:
+and an Actions event policy (Settings → Actions → Policies) scoped to
+`.github/workflows/bot.yml` that allows its events: `pull_request`,
+`pull_request_target`, `issues`, `issue_comment`,
+`pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
+default policy blocks `pull_request_target` in public repositories from
+November 2, 2026, so fork PRs would no longer be reviewed. Then add
+`.github/workflows/bot.yml`:
 
 ```yaml
 name: wasm-bindgen-bot
