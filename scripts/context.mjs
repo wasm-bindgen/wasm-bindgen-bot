@@ -58,6 +58,30 @@ const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', 
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
+// After a push to the default branch, auto-merge PRs that it left
+// conflicting get `bot-rebase`. GitHub computes mergeability lazily, so each
+// is polled until it is known.
+if (name === 'push') {
+  const { default_branch } = await gh(`/repos/${repo}`);
+  if (event.ref !== `refs/heads/${default_branch}`) skip('not the default branch');
+  const waiting = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
+    p => p.auto_merge && p.head.repo?.full_name === repo && !p.labels.some(l => l.name === 'bot-rebase')
+  );
+  const conflicting = [];
+  for (const p of waiting) {
+    let pr;
+    for (let i = 0; i < 12; i++) {
+      pr = await gh(`/repos/${repo}/pulls/${p.number}`);
+      if (pr.mergeable !== null) break;
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    if (pr.mergeable === false) conflicting.push(p.number);
+  }
+  if (!conflicting.length) skip('no auto-merge PRs are conflicting');
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting }));
+  process.exit(0);
+}
+
 // A collaborator's approval of a same-repo PR enables auto-merge. It needs no
 // model, so the result goes straight to the post job.
 if (name === 'pull_request_review') {
@@ -129,14 +153,15 @@ if (mode !== 'ask' && VERBS[mode] !== 'any' && (VERBS[mode] === 'pr') !== isPr) 
   skip(`${mode} does not apply to ${isPr ? 'PRs' : 'issues'}`);
 }
 // The app itself only adds `bot-pr`, after an investigation a collaborator
-// requested or a review of its own PR, and `bot-review` to its own PRs.
-const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review');
+// requested or a review of its own PR, `bot-review` to its own PRs and to PRs
+// whose conflicts it resolved, and `bot-rebase` to auto-merge PRs that a
+// merge left conflicting.
+const fromApp = isBot(requester) && (mode === 'pr' || mode === 'review' || mode === 'rebase');
 if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} is not a collaborator`);
 
 const meta = { repo, number, mode, requester, label, ...meta0 };
 
-// Rebasing needs no model, so the request goes straight to the post job. A PR
-// stacked on other PRs, through base branches that are their heads, is
+// A PR stacked on other PRs, through base branches that are their heads, is
 // rebased with its whole stack, bottom up, so one request on any layer keeps
 // the stack consistent. When a lower layer also has a rebase requested, its
 // run covers this one.
@@ -153,12 +178,21 @@ if (mode === 'rebase') {
   }
   const stack = [];
   const queue = [{ pr, parent: null }];
+  let text = `Base branch: ${pr.base.ref}\n\nLayers, bottom up:\n`;
   while (queue.length) {
     const { pr: p, parent } = queue.shift();
     stack.push({ number: p.number, headRef: p.head.ref, headSha: p.head.sha, parent });
+    text +=
+      `\n## #${p.number}: ${p.title}\n\nBranch: ${p.head.ref} @ ${p.head.sha}\n` +
+      `Rebase onto: ${parent ? `the rebased ${parent}` : pr.base.ref}\n\n${p.body || '(no description)'}\n`;
     for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
   }
-  writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...meta, baseRef: pr.base.ref, stack }));
+  Object.assign(meta, { baseRef: pr.base.ref, stack });
+  writeFileSync(join(ctx, 'stack.md'), text);
+  await writeGuide(pr.base.ref);
+  setOutput('checkout-ref', pr.base.ref);
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
+  setOutput('mode', meta.mode);
   process.exit(0);
 }
 

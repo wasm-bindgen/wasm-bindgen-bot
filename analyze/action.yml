@@ -83,6 +83,9 @@ runs:
         BOT_INVESTIGATE_MODEL: ${{ inputs.investigate-model }}
         BOT_INVESTIGATE_EFFORT: ${{ inputs.investigate-effort }}
         BOT_INVESTIGATE_BUDGET: ${{ inputs.investigate-budget-usd }}
+        BOT_REBASE_MODEL: ${{ inputs.pr-model }}
+        BOT_REBASE_EFFORT: ${{ inputs.pr-effort }}
+        BOT_REBASE_BUDGET: ${{ inputs.pr-budget-usd }}
         BOT_PR_MODEL: ${{ inputs.pr-model }}
         BOT_PR_EFFORT: ${{ inputs.pr-effort }}
         BOT_PR_BUDGET: ${{ inputs.pr-budget-usd }}

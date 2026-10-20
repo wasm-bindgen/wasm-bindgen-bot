@@ -14,8 +14,8 @@ const ghToken = process.env.BOT_GH_TOKEN;
 const setting = name => process.env[`BOT_${meta.mode.toUpperCase()}_${name}`];
 
 // Modes that run code get a sandbox and more time.
-const MINUTES = { review: 15, triage: 15, ask: 15, investigate: 45, pr: 75 };
-const executes = meta.mode === 'investigate' || meta.mode === 'pr';
+const MINUTES = { review: 15, triage: 15, ask: 15, investigate: 45, pr: 75, rebase: 60 };
+const executes = ['investigate', 'pr', 'rebase'].includes(meta.mode);
 const SANDBOX_USER = 'wbg-sandbox';
 const SANDBOX_HOME = `/home/${SANDBOX_USER}`;
 const sandboxRepo = `${SANDBOX_HOME}/work/repo`;
@@ -44,13 +44,25 @@ function run(cmd, args, opts = {}) {
   return r.stdout;
 }
 
-// Runs a command as the sandbox user with a clean environment.
-const asSandbox = (cmd, opts = {}) =>
-  run(
-    'sudo',
-    ['-u', SANDBOX_USER, '-H', 'env', '-i', `PATH=${SANDBOX_HOME}/.cargo/bin:${process.env.PATH}`, `HOME=${SANDBOX_HOME}`, ...cmd],
-    { cwd: '/', ...opts }
-  );
+// The sandbox's environment, rebuilt from scratch. Commits it makes, such as
+// rebased ones, are committed as the bot.
+const botUser = executes
+  ? await (await fetch('https://api.github.com/users/wasm-bindgen-bot%5Bbot%5D')).json()
+  : null;
+const sandboxEnv = [
+  `PATH=${SANDBOX_HOME}/.cargo/bin:${process.env.PATH}`,
+  `HOME=${SANDBOX_HOME}`,
+  'GIT_TERMINAL_PROMPT=0',
+  ...(botUser ? [
+    `GIT_COMMITTER_NAME=${botUser.login}`,
+    `GIT_COMMITTER_EMAIL=${botUser.id}+${botUser.login}@users.noreply.github.com`,
+  ] : []),
+];
+const sandboxCmd = cmd => ['-u', SANDBOX_USER, '-H', 'env', '-i', ...sandboxEnv, ...cmd];
+
+// Runs a command as the sandbox user.
+const asSandbox = (cmd, opts = {}) => run('sudo', sandboxCmd(cmd), { cwd: '/', ...opts });
+const trySandbox = cmd => spawnSync('sudo', sandboxCmd(cmd), { cwd: '/', encoding: 'utf8' });
 
 // Starts a helper that prints its port once listening.
 async function serve(script, args, env) {
@@ -128,6 +140,9 @@ if (!executes) {
   run('sudo', ['mkdir', '-p', work]);
   run('sudo', ['cp', '-a', join(dir, 'ctx'), join(dir, 'repo'), work]);
   run('sudo', ['chown', '-R', `${SANDBOX_USER}:${SANDBOX_USER}`, work]);
+  if (meta.mode === 'rebase' && rebaseWithoutModel()) {
+    proc = { stdout: JSON.stringify({ type: 'result', subtype: 'clean', num_turns: 0, total_cost_usd: 0, structured_output: { layers: [], comment: null } }) };
+  } else {
   console.log('Installing Rust for the sandbox user');
   asSandbox([
     'sh', '-c',
@@ -152,8 +167,7 @@ if (!executes) {
     'sudo',
     [
       '-u', SANDBOX_USER, '-H', 'env', '-i',
-      `PATH=${SANDBOX_HOME}/.cargo/bin:${process.env.PATH}`,
-      `HOME=${SANDBOX_HOME}`,
+      ...sandboxEnv,
       `ANTHROPIC_BASE_URL=http://127.0.0.1:${gateway.port}`,
       'ANTHROPIC_AUTH_TOKEN=sandbox',
       'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1',
@@ -169,6 +183,7 @@ if (!executes) {
   );
   gateway.child.kill();
   github.child.kill();
+  }
 }
 
 let out;
@@ -190,7 +205,7 @@ if (out.is_error || !out.structured_output) {
   throw new Error(`no structured output: ${redact(out.result)}`);
 }
 
-const extra = meta.mode === 'pr' ? collectChanges() : {};
+const extra = meta.mode === 'pr' ? collectChanges() : meta.mode === 'rebase' ? collectRebase() : {};
 const result = JSON.stringify({ ...meta, ...extra, output: out.structured_output });
 if (result.includes(token) || result.includes(ghToken)) throw new Error('output contains a token');
 writeFileSync(join(dir, 'result.json'), result);
@@ -253,4 +268,45 @@ function collectChanges() {
   }
   console.log(`Changed files: ${files.map(f => f.path).join(', ') || '(none)'}`);
   return { baseSha, files };
+}
+
+// Fetches the base and every layer into the sandbox's clone, then tries to
+// rebase the stack bottom up with plain git onto `bot-rebased/<branch>`
+// branches. Returns whether that worked without conflicts; otherwise it
+// leaves the clone clean for the model to do it.
+function rebaseWithoutModel() {
+  const { stack, baseRef } = meta;
+  asSandbox(['git', '-C', sandboxRepo, 'fetch', '-q', '--unshallow', 'origin',
+    `+refs/heads/${baseRef}:refs/remotes/origin/${baseRef}`,
+    ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`)]);
+  const git = (...args) => trySandbox(['git', '-C', sandboxRepo, ...args]);
+  for (const l of stack) {
+    git('checkout', '-q', '-B', `bot-rebased/${l.headRef}`, l.headSha);
+    const parent = stack.find(p => p.headRef === l.parent);
+    const r = parent
+      ? git('rebase', '-q', '--onto', `bot-rebased/${parent.headRef}`, parent.headSha)
+      : git('rebase', '-q', `origin/${baseRef}`);
+    if (r.status !== 0) {
+      console.log(`#${l.number} conflicts; handing the rebase to the model`);
+      git('rebase', '--abort');
+      git('checkout', '-q', '--detach', `origin/${baseRef}`);
+      for (const b of stack) git('branch', '-q', '-D', `bot-rebased/${b.headRef}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+// Bundles the rebased branches, which keeps their commits, authors and
+// structure, for the post job to verify and push.
+function collectRebase() {
+  const refs = trySandbox(['git', '-C', sandboxRepo, 'for-each-ref', '--format=%(refname)', 'refs/heads/bot-rebased/'])
+    .stdout.trim().split('\n').filter(Boolean);
+  if (!refs.length) return { bundle: null };
+  const bundle = `${SANDBOX_HOME}/rebase.bundle`;
+  asSandbox(['git', '-C', sandboxRepo, 'bundle', 'create', '-q', bundle, ...refs, `^origin/${meta.baseRef}`]);
+  const data = asSandbox(['cat', bundle], { encoding: null, maxBuffer: 64 * 1024 * 1024 });
+  if (data.length > 30 * 1024 * 1024) throw new Error('rebase bundle is too large');
+  console.log(`Rebased: ${refs.join(', ')}`);
+  return { bundle: data.toString('base64') };
 }

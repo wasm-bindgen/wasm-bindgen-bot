@@ -87,13 +87,19 @@ Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone
 else are left out.
 
-- `rebase` (PRs): rebases a same-repo PR onto its base with plain git, no
-  model, and force-pushes it only if nobody pushed meanwhile. A PR in a
+- `rebase` (PRs): rebases a same-repo PR onto its base in the sandbox,
+  trying plain git first and handing conflicts to the model, which resolves
+  them keeping the intent of both sides, then builds and tests. A PR in a
   stack, whose base is another open PR's branch, is rebased with its whole
-  stack, bottom up, in one atomic push; a request on a layer above one that
-  is already being rebased is skipped. Conflicts are never resolved: it
-  comments with the conflicting files instead. The bot's own pushes don't
-  trigger re-reviews.
+  stack, bottom up; a request on a layer above one that is already being
+  rebased is skipped. The rebased branches come back as a git bundle, and
+  are force-pushed in one atomic push only if nobody pushed meanwhile. Where
+  the model resolved conflicts, the bot comments with each resolution, turns
+  off auto-merge, since the approval predates that code, and reviews the
+  PR. The bot's own pushes don't otherwise trigger re-reviews.
+
+After every push to the default branch, open auto-merge PRs that it left
+conflicting get `bot-rebase`.
 
 Commands can also be run from the Actions tab with "Run workflow" on the
 bot's workflow, choosing the command, the issue or PR number and a request.
@@ -115,7 +121,7 @@ secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
 Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
 and an Actions event policy (Settings → Actions → Policies) scoped to
-`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `workflow_dispatch`, `issues`, `issue_comment`,
+`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `workflow_dispatch`, `push`, `issues`, `issue_comment`,
 `pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
 default policy blocks `pull_request_target` in public repositories from
 November 2, 2026, so fork PRs would no longer be reviewed. Then add
@@ -141,6 +147,9 @@ on:
   # Likewise same-repo only: a collaborator's approval enables auto-merge.
   pull_request_review:
     types: [submitted]
+  # After merges, flags auto-merge PRs they left conflicting for a rebase.
+  push:
+    branches: [main, master]
   # Runs a command from the Actions tab.
   workflow_dispatch:
     inputs:
@@ -179,7 +188,7 @@ jobs:
         github.event.review.state == 'approved' &&
         github.event.review.user.type != 'Bot' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
