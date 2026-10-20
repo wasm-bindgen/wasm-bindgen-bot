@@ -244,6 +244,25 @@ if (result.mode === 'review') {
     );
     summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
   }
+} else if (result.mode === 'triage' && result.headSha) {
+  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
+  const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
+  const labels = (output.labels ?? []).filter(l => existing.has(l) && !controlled(l)).slice(0, 6);
+  if (labels.length) await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels } });
+  if (result.label) await unlabel(result.label);
+  let note = output.comment?.trim() || '';
+  const by = Number.isInteger(output.superseded_by) && output.superseded_by !== number ? output.superseded_by : null;
+  const close = output.close === 'superseded' && !by ? null : output.close;
+  if (by && close && !note.includes(`#${by}`)) note = `Superseded by #${by}.${note ? `\n\n${note}` : ''}`;
+  // Closing is only explained by the comment, so never close silently.
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (note) await comment(note);
+  let closed = false;
+  if (close && note && pr.state === 'open') {
+    await gh(`/repos/${repo}/pulls/${number}`, { method: 'PATCH', body: { state: 'closed' } });
+    closed = true;
+  }
+  summary(`Triaged PR #${number}: labels [${labels.join(', ')}], comment ${note ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
 } else if (result.mode === 'issue') {
   const existing = Number.isInteger(output.existing) && output.existing !== number ? output.existing : null;
   let reply;

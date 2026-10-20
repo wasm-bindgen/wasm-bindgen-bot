@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "labels": { "type": "array", "items": { "type": "string" }, "description": "Existing repository label names to add" },
+    "close": { "enum": ["resolved", "superseded", "stale", null], "description": "Close the PR for this reason, or null to leave it open" },
+    "superseded_by": { "type": ["integer", "null"], "description": "The merged PR that superseded this one, or null" },
+    "comment": { "type": ["string", "null"], "description": "Comment to post in GitHub markdown, or null" }
+  },
+  "required": ["labels", "close", "superseded_by", "comment"],
+  "additionalProperties": false
+}

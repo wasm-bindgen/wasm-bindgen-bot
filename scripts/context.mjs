@@ -209,7 +209,7 @@ function skip(reason) {
 // Every command is either `@wbg-bot <verb>` in a comment or the `bot-<verb>`
 // label, from a collaborator, and applies to PRs, issues or both. `pr` opens
 // a PR for an issue, or updates one of the bot's own PRs.
-const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', rebase: 'pr', issue: 'any' };
+const VERBS = { review: 'pr', triage: 'any', investigate: 'issue', pr: 'any', rebase: 'pr', issue: 'any' };
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
@@ -447,7 +447,9 @@ if (isPr) {
   writeFileSync(
     join(ctx, 'pr.md'),
     `# ${pr.title}\n\nAuthor: ${await who(pr.user.login)}\n` +
-      `Base: ${pr.base.ref}\nHead: ${pr.head.label} @ ${pr.head.sha}\n\n` +
+      `Base: ${pr.base.ref}\nHead: ${pr.head.label} @ ${pr.head.sha}\n` +
+      `Opened: ${pr.created_at}\nLast commit: ${(await gh(`/repos/${repo}/commits/${pr.head.sha}`)).commit.committer.date}\n` +
+      `Mergeable: ${pr.mergeable ?? 'unknown'}\n\n` +
       `## Description\n\n${pr.body || '(none)'}\n`
   );
 
@@ -506,7 +508,16 @@ if (isPr) {
   }
 
   await writeGuide(pr.base.sha);
-  setOutput('checkout-ref', pr.head.sha);
+  if (mode === 'triage') {
+    // Triage asks whether the default branch already has what the PR does.
+    meta.prompt = 'triage-pr';
+    const merged = (await paginate(`/repos/${repo}/pulls?state=closed&sort=updated&direction=desc`, 500))
+      .filter(p => p.merged_at);
+    writeFileSync(join(ctx, 'merged-prs.txt'), merged.map(p => `#${p.number} ${p.merged_at.slice(0, 10)} ${p.title}`).join('\n') + '\n');
+    setOutput('checkout-ref', pr.base.repo.default_branch);
+  } else {
+    setOutput('checkout-ref', pr.head.sha);
+  }
 } else {
   const issue = await gh(`/repos/${repo}/issues/${number}`);
   if (issue.state !== 'open' && !followOn) skip('issue is not open');
@@ -572,7 +583,7 @@ if (isPr) {
   setOutput('checkout-ref', default_branch);
 }
 
-if (!isPr || followOn) {
+if (!isPr || followOn || mode === 'triage') {
   const labels = await paginate(`/repos/${repo}/labels`);
   writeFileSync(
     join(ctx, 'labels.md'),

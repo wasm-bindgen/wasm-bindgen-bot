@@ -61,11 +61,14 @@ PR, it answers in the thread.
   matched up before and after, without the base branch's changes) and the
   review threads, and resolves
   its own threads once they are addressed.
-- `triage` (issues): runs on every new issue. Adds labels, and
+- `triage` (issues and PRs): runs on every new issue. Adds labels, and
   `ready-for-pr` when the issue has a clear goal and a settled, well-defined
   design space; otherwise it removes `ready-for-pr` and comments on what
   remains unresolved. Closes issues, with a short comment, that are confirmed
-  fixed, duplicates, or clearly spam or off topic.
+  fixed, duplicates, or clearly spam or off topic. On a PR, on request, it
+  checks whether the default branch already has what the PR does, and closes
+  it with a comment when that's resolved, superseded by a merged PR, or the
+  PR is stale: over a year without its author and no longer merging.
 - `investigate` (issues): clones the repository and tries to reproduce the
   issue, then comments with a minimal reproduction or what it tried, and
   labels or closes it as triage does. When the issue is ready for a PR, it
