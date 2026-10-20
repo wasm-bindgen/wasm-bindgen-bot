@@ -37,7 +37,7 @@ permission API, since `author_association` hides private org membership from
 Actions tokens.
 
 PR code is never built or executed, which is what makes `pull_request_target`
-safe for fork PRs. Same-repo PRs use `pull_request` instead. Only
+safe for all PRs, including forks. Only
 investigations and PRs run code, from the default branch and the issue, and
 only at a collaborator's request. Branch protection on the default branch is
 what guards the app's write access.
@@ -111,8 +111,7 @@ secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
 Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
 and an Actions event policy (Settings → Actions → Policies) scoped to
-`.github/workflows/bot.yml` that allows its events: `pull_request`,
-`pull_request_target`, `issues`, `issue_comment`,
+`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `issues`, `issue_comment`,
 `pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
 default policy blocks `pull_request_target` in public repositories from
 November 2, 2026, so fork PRs would no longer be reviewed. Then add
@@ -121,12 +120,10 @@ November 2, 2026, so fork PRs would no longer be reviewed. Then add
 ```yaml
 name: wasm-bindgen-bot
 
-# Same-repo PRs use pull_request, since their authors already have write
-# access. Fork PRs use pull_request_target, which is safe because the bot only
-# reads PR content and never runs it.
+# PRs use pull_request_target, which is safe because the bot only reads PR
+# content and never runs it, and which, unlike pull_request, also runs for PRs
+# with merge conflicts.
 on:
-  pull_request:
-    types: [opened, ready_for_review, synchronize, labeled]
   pull_request_target:
     types: [opened, ready_for_review, synchronize, labeled]
   issues:
@@ -134,7 +131,7 @@ on:
   issue_comment:
     types: [created]
   # Only same-repo PRs, since GitHub gives fork PRs' review comment runs no
-  # secrets.
+  # secrets. Like approvals, these don't run on PRs with merge conflicts.
   pull_request_review_comment:
     types: [created]
   # Likewise same-repo only: a collaborator's approval enables auto-merge.
@@ -148,10 +145,7 @@ jobs:
     # Pushes to PRs by non-collaborators and commands from non-collaborators
     # are skipped by the analyze action, which checks repository roles.
     if: >-
-      (((github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository) ||
-        (github.event_name == 'pull_request_target' &&
-          github.event.pull_request.head.repo.full_name != github.repository)) && (
+      (github.event_name == 'pull_request_target' && (
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
         (github.event.action != 'labeled' && !github.event.pull_request.draft &&
           github.event.pull_request.user.type != 'Bot'))) ||
