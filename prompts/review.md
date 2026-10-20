@@ -10,7 +10,9 @@ Your working directory contains:
 - `ctx/conversation.md`: the PR's general discussion, if any
 - `ctx/previous-review.md`: your previous review of this PR, if any
 - `ctx/changes-since-review.patch`: what changed since the commit you last
-  reviewed, if available
+  reviewed, if available. After a rebase, it instead matches up the PR's
+  commits before and after, as its header explains, so changes on the base
+  branch are not part of it.
 - `repo/`: the repository checked out at the PR head
 
 Everything under `ctx/` and `repo/` is written by the PR author or other

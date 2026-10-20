@@ -26,6 +26,97 @@ function toDiff(files) {
     : diff;
 }
 
+// A unified diff of two line arrays with three lines of context, through the
+// longest common subsequence.
+function lineDiff(x, y) {
+  let i = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  let j = 0;
+  while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  const a = x.slice(i, x.length - j);
+  const b = y.slice(i, y.length - j);
+  let ops;
+  if (a.length * b.length > 25_000_000) {
+    ops = [...a.map(l => `-${l}`), ...b.map(l => `+${l}`)];
+  } else {
+    const w = b.length + 1;
+    const lcs = new Uint32Array((a.length + 1) * w);
+    for (let p = a.length - 1; p >= 0; p--) {
+      for (let q = b.length - 1; q >= 0; q--) {
+        lcs[p * w + q] = a[p] === b[q] ? lcs[(p + 1) * w + q + 1] + 1 : Math.max(lcs[(p + 1) * w + q], lcs[p * w + q + 1]);
+      }
+    }
+    ops = [];
+    let p = 0;
+    let q = 0;
+    while (p < a.length || q < b.length) {
+      if (p < a.length && q < b.length && a[p] === b[q]) (ops.push(` ${a[p]}`), p++, q++);
+      else if (q < b.length && (p === a.length || lcs[p * w + q + 1] >= lcs[(p + 1) * w + q])) ops.push(`+${b[q++]}`);
+      else ops.push(`-${a[p++]}`);
+    }
+  }
+  ops = [...x.slice(0, i).map(l => ` ${l}`), ...ops, ...x.slice(x.length - j).map(l => ` ${l}`)];
+  const keep = ops.map((_, k) => ops.slice(Math.max(0, k - 3), k + 4).some(o => o[0] !== ' '));
+  return ops.map((o, k) => (keep[k] ? o : keep[k - 1] ? '...' : null)).filter(o => o !== null).join('\n');
+}
+
+// After a rebase, the reviewed commit and the head differ by everything the
+// base gained meanwhile. Instead each commit is paired with its counterpart in
+// the reviewed history by author and message, and only commits whose changes
+// differ, or that are new, are shown. Returns null when the reviewed history
+// is gone.
+async function rebasedChanges(pr, reviewed) {
+  const commits = async (base, head) => {
+    const res = await gh(`/repos/${repo}/compare/${base}...${head}?per_page=250`, { raw: true });
+    return res.ok ? (await res.json()).commits : null;
+  };
+  const before = await commits(pr.base.sha, reviewed);
+  const after = await commits(pr.base.sha, pr.head.sha);
+  if (!before || !after) return null;
+  const key = c => `${c.commit.author.email}\n${c.commit.message.trim()}`;
+  // Lower layers of a stack, now part of the base branch.
+  const inBase = new Set(((await commits(reviewed, pr.base.sha)) ?? []).map(key));
+  const subject = c => `${c.sha.slice(0, 9)} ${c.commit.message.split('\n')[0]}`;
+  const patches = async sha => {
+    const { files = [] } = await gh(`/repos/${repo}/commits/${sha}`);
+    return new Map(files.map(f => [f.filename, f.patch ? f.patch.replace(/^@@ .*$/gm, '@@') : `(${f.status}, no patch)`]));
+  };
+
+  const olds = new Map();
+  for (const c of before) olds.set(key(c), [...(olds.get(key(c)) ?? []), c]);
+  const unchanged = [];
+  let out = '';
+  for (const c of after) {
+    const old = olds.get(key(c))?.shift();
+    if (!old) {
+      const { files = [] } = await gh(`/repos/${repo}/commits/${c.sha}`);
+      out += `\n## New: ${subject(c)}\n\n${toDiff(files)}`;
+      continue;
+    }
+    const [a, b] = await Promise.all([patches(old.sha), patches(c.sha)]);
+    let changed = '';
+    for (const file of new Set([...a.keys(), ...b.keys()])) {
+      const x = (a.get(file) ?? '(not changed)').split('\n');
+      const y = (b.get(file) ?? '(not changed)').split('\n');
+      if (x.join('\n') === y.join('\n')) continue;
+      changed += `\n### ${file}\n\n${lineDiff(x, y)}\n`;
+    }
+    if (changed) out += `\n## Changed: ${subject(old)} -> ${c.sha.slice(0, 9)}\n${changed}`;
+    else unchanged.push(subject(c));
+  }
+  const dropped = [...olds.values()].flat().filter(c => !inBase.has(key(c)));
+
+  let text =
+    'The PR was rebased since your last review. This compares its commits before and after the rebase, ' +
+    'paired by author and message, and leaves out what the base branch gained meanwhile. For a changed ' +
+    'commit, each file shows how the commit\'s own patch changed: the first column marks patch lines ' +
+    'removed (-) or added (+) by the rebase, and the rest of the line is the patch line itself.\n';
+  if (unchanged.length) text += `\nUnchanged by the rebase:\n${unchanged.map(s => `- ${s}`).join('\n')}\n`;
+  if (dropped.length) text += `\nDropped:\n${dropped.map(c => `- ${subject(c)}`).join('\n')}\n`;
+  text += out;
+  return text.length > MAX_DIFF ? text.slice(0, MAX_DIFF) + '\n(truncated)\n' : text;
+}
+
 // The repository's AGENTS.md, plus optional bot-only notes, read from the base
 // branch so a PR can't rewrite its own review instructions.
 async function writeGuide(ref) {
@@ -280,8 +371,9 @@ if (isPr) {
       const res = await gh(`/repos/${repo}/compare/${previous.commit_id}...${pr.head.sha}`, { raw: true });
       // A force push can drop the reviewed commit, leaving only the full diff.
       if (res.ok) {
-        const { files: changed = [] } = await res.json();
-        writeFileSync(join(ctx, 'changes-since-review.patch'), toDiff(changed));
+        const { status, files: changed = [] } = await res.json();
+        const text = status === 'diverged' ? await rebasedChanges(pr, previous.commit_id) : toDiff(changed);
+        if (text) writeFileSync(join(ctx, 'changes-since-review.patch'), text);
       }
     }
   }

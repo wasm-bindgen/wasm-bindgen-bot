@@ -57,7 +57,9 @@ PR, it answers in the thread.
 - `review` (PRs): runs on open and ready for review, skipping drafts and
   bots, and on every push to collaborators' PRs. Use the command to review
   third-party PRs again. Later reviews are re-reviews: the model sees its
-  previous review, the changes since and the review threads, and resolves
+  previous review, the changes since (after a rebase, the PR's commits
+  matched up before and after, without the base branch's changes) and the
+  review threads, and resolves
   its own threads once they are addressed.
 - `triage` (issues): runs on every new issue. Adds labels, and
   `ready-for-pr` when the issue has a clear goal and a settled, well-defined
