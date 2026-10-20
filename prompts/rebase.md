@@ -47,7 +47,13 @@ that rebased cleanly need no testing beyond what the layers above require.
 ## Output
 
 - `layers`: each layer you rebased, with every conflict you resolved (path
-  and how), and what you built and tested with the result. Layers that
-  rebased without conflicts have an empty `conflicts` list.
+  and how, briefly), and what you built and tested with the result. Layers
+  that rebased without conflicts have an empty `conflicts` list.
+- `decisions` on each layer: the judgment calls in its resolution that a
+  reviewer should check, such as choosing one side's behaviour over the
+  other's, or writing code that neither side had to adapt the PR to a
+  changed API. Keeping both sides' changes, renaming to match, or reordering
+  is not a decision. Leave it empty when there were none; the rebase then
+  goes through without a comment or a review.
 - `comment`: null when every layer is rebased. Otherwise, what you could not
   rebase and why.

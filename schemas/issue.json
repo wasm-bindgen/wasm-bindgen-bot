@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "body": { "type": "string", "description": "The issue body in GitHub markdown" },
+    "labels": { "type": "array", "items": { "type": "string" } },
+    "existing": { "type": ["integer", "null"], "description": "An open issue that already covers this, or null" }
+  },
+  "required": ["title", "body", "labels", "existing"],
+  "additionalProperties": false
+}

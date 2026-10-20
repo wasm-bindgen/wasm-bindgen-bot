@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,7 @@ const ghToken = process.env.BOT_GH_TOKEN;
 const setting = name => process.env[`BOT_${meta.mode.toUpperCase()}_${name}`];
 
 // Modes that run code get a sandbox and more time.
-const MINUTES = { review: 15, triage: 15, ask: 15, investigate: 45, pr: 75, rebase: 60 };
+const MINUTES = { review: 15, triage: 15, ask: 15, issue: 15, investigate: 45, pr: 75, rebase: 60 };
 const executes = ['investigate', 'pr', 'rebase'].includes(meta.mode);
 const SANDBOX_USER = 'wbg-sandbox';
 const SANDBOX_HOME = `/home/${SANDBOX_USER}`;
@@ -22,10 +22,13 @@ const sandboxRepo = `${SANDBOX_HOME}/work/repo`;
 
 const read = p => (existsSync(p) ? readFileSync(p, 'utf8').trim() : '');
 const promptFile = name => readFileSync(join(root, 'prompts', `${name}.md`), 'utf8').trim();
-// Questions on PRs see what a review sees, and on issues what triage sees.
-const name = meta.mode === 'ask' ? (meta.headSha ? 'ask-pr' : 'ask-issue') : (meta.prompt ?? meta.mode);
+// Questions and follow-on issues see what a review sees on PRs, and what
+// triage sees on issues.
+const name = meta.prompt ?? meta.mode;
 let prompt = promptFile(name)
-  .replace(/\{\{include:([a-z-]+)\}\}/g, (_, name) => promptFile(name))
+  .replace(/\{\{include:([a-z-]+)\}\}/g, (_, inc) =>
+    promptFile(inc === 'context' ? (meta.headSha ? 'context-pr' : 'context-issue') : inc))
+  .replaceAll('{{kind}}', meta.headSha ? 'pull request' : 'issue')
   .replaceAll('{{repo}}', meta.repo)
   .replaceAll('{{number}}', String(meta.number));
 const guide = read(join(dir, 'guide.md'));
@@ -33,7 +36,7 @@ if (guide) prompt += `\n\n## Repository guide (from the base branch)\n\n${guide}
 const request = read(join(dir, 'request.md'));
 if (request) prompt += `\n\n## Maintainer request\n\n${request}\n`;
 
-const schema = readFileSync(join(root, 'schemas', `${meta.mode === 'ask' ? 'ask' : name}.json`), 'utf8');
+const schema = readFileSync(join(root, 'schemas', `${name === 'pr-request' ? 'pr' : name}.json`), 'utf8');
 const redact = s => String(s).split(token).join('***').split(ghToken).join('***');
 
 function run(cmd, args, opts = {}) {
@@ -143,11 +146,7 @@ if (!executes) {
   if (meta.mode === 'rebase' && rebaseWithoutModel()) {
     proc = { stdout: JSON.stringify({ type: 'result', subtype: 'clean', num_turns: 0, total_cost_usd: 0, structured_output: { layers: [], comment: null } }) };
   } else {
-  console.log('Installing Rust for the sandbox user');
-  asSandbox([
-    'sh', '-c',
-    'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal -c clippy,rustfmt',
-  ]);
+  installRust();
 
   const gateway = await serve('gateway-proxy.mjs', [], {
     CF_AIG_TOKEN: token,
@@ -276,10 +275,14 @@ function collectChanges() {
 // leaves the clone clean for the model to do it.
 function rebaseWithoutModel() {
   const { stack, baseRef } = meta;
-  asSandbox(['git', '-C', sandboxRepo, 'fetch', '-q', '--unshallow', 'origin',
+  const git = (...args) => trySandbox(['git', '-C', sandboxRepo, ...args]);
+  // A blobless clone with full history, so commits can be rebased while file
+  // contents are only fetched as needed.
+  asSandbox(['rm', '-rf', sandboxRepo]);
+  asSandbox(['git', 'clone', '-q', '--filter=blob:none', '--no-checkout', `https://github.com/${meta.repo}.git`, sandboxRepo]);
+  asSandbox(['git', '-C', sandboxRepo, 'fetch', '-q', 'origin',
     `+refs/heads/${baseRef}:refs/remotes/origin/${baseRef}`,
     ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`)]);
-  const git = (...args) => trySandbox(['git', '-C', sandboxRepo, ...args]);
   for (const l of stack) {
     git('checkout', '-q', '-B', `bot-rebased/${l.headRef}`, l.headSha);
     const parent = stack.find(p => p.headRef === l.parent);
@@ -309,4 +312,25 @@ function collectRebase() {
   if (data.length > 30 * 1024 * 1024) throw new Error('rebase bundle is too large');
   console.log(`Rebased: ${refs.join(', ')}`);
   return { bundle: data.toString('base64') };
+}
+
+// Shares the runner's preinstalled toolchain with the sandbox through hard
+// links, which is near instant. The sandbox owns the directories, so it can
+// add targets and components, but not the runner's existing files. Without a
+// preinstalled toolchain it installs its own.
+function installRust() {
+  const home = homedir();
+  if (existsSync(join(home, '.rustup')) && existsSync(join(home, '.cargo', 'bin'))) {
+    run('sudo', ['mkdir', '-p', `${SANDBOX_HOME}/.cargo`]);
+    run('sudo', ['cp', '-al', join(home, '.rustup'), `${SANDBOX_HOME}/.rustup`]);
+    run('sudo', ['cp', '-al', join(home, '.cargo', 'bin'), `${SANDBOX_HOME}/.cargo/bin`]);
+    run('sudo', ['find', `${SANDBOX_HOME}/.rustup`, `${SANDBOX_HOME}/.cargo`, '-type', 'd',
+      '-exec', 'chown', `${SANDBOX_USER}:${SANDBOX_USER}`, '{}', '+']);
+    return;
+  }
+  console.log('Installing Rust for the sandbox user');
+  asSandbox([
+    'sh', '-c',
+    'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal -c clippy,rustfmt',
+  ]);
 }

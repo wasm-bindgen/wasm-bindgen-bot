@@ -93,17 +93,23 @@ else are left out.
   stack, whose base is another open PR's branch, is rebased with its whole
   stack, bottom up; a request on a layer above one that is already being
   rebased is skipped. The rebased branches come back as a git bundle, and
-  are force-pushed in one atomic push only if nobody pushed meanwhile. Where
-  the model resolved conflicts, the bot comments with each resolution, turns
-  off auto-merge, since the approval predates that code, and reviews the
-  PR. The bot's own pushes don't otherwise trigger re-reviews.
+  are force-pushed in one atomic push only if nobody pushed meanwhile.
+  Rebases go through without a comment or a review, unless resolving a
+  conflict took a judgment call, such as choosing one side's behaviour. Then
+  the bot comments with those decisions, turns off auto-merge, since the
+  approval predates them, and reviews the PR. The bot's own pushes don't
+  otherwise trigger re-reviews.
+- `issue` (issues and PRs, with a request): opens a new issue for a follow-on
+  the request describes, written from the discussion and the code, and
+  replies with its link, or points to an existing issue that covers it.
 
 After every push to the default branch, open auto-merge PRs that it left
 conflicting get `bot-rebase`.
 
 Commands can also be run from the Actions tab with "Run workflow" on the
 bot's workflow, choosing the command, the issue or PR number and a request.
-Without a number, `pr` opens a PR from the request alone.
+Without a number, `pr` opens a PR from the request alone. `issue` always
+needs a request.
 
 A collaborator's approval of a same-repo PR also enables squash auto-merge,
 unless the PR is a draft or labelled "do not land", so it lands once checks
@@ -156,7 +162,7 @@ on:
       command:
         description: Command to run
         type: choice
-        options: [pr, investigate, triage, review, rebase]
+        options: [pr, investigate, triage, review, rebase, issue]
         default: pr
       number:
         description: Issue or PR number, optional for pr

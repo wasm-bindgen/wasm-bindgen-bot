@@ -54,7 +54,7 @@ function skip(reason) {
 // Every command is either `@wbg-bot <verb>` in a comment or the `bot-<verb>`
 // label, from a collaborator, and applies to PRs, issues or both. `pr` opens
 // a PR for an issue, or updates one of the bot's own PRs.
-const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', rebase: 'pr' };
+const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', rebase: 'pr', issue: 'any' };
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
@@ -113,6 +113,7 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
     mode = LEGACY_LABELS[label] ?? (label.startsWith('bot-') ? label.slice(4) : null);
     if (mode === 'ask') mode = null;
     if (!Object.hasOwn(VERBS, mode)) skip(`label ${label} is not a bot command`);
+    if (mode === 'issue') skip('issue needs a request, in a comment');
     requester = event.sender.login;
   } else {
     mode = isPr ? 'review' : 'triage';
@@ -137,6 +138,7 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
   if (!Object.hasOwn(VERBS, mode)) skip(`unknown command ${mode}`);
   requester = event.sender.login;
   if (inputs.request?.trim()) request = `${requester}: ${inputs.request.trim()}`;
+  if (mode === 'issue' && !request) skip('issue needs a request');
   if (inputs.number?.trim()) {
     number = Number(inputs.number.trim().replace(/^#/, ''));
     if (!Number.isInteger(number)) skip(`invalid number ${inputs.number}`);
@@ -208,9 +210,12 @@ if (number === null) {
   process.exit(0);
 }
 
+// Questions and follow-on issues are fine after a PR merges or an issue
+// closes.
+const followOn = mode === 'ask' || mode === 'issue';
 if (isPr) {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
-  if (pr.state !== 'open') skip('PR is not open');
+  if (pr.state !== 'open' && !followOn) skip('PR is not open');
   // The bot's own pushes, such as rebases, only move the PR onto newer code.
   if (event.action === 'synchronize' && isBot(event.sender?.login)) skip('push by the bot');
   if (event.action === 'synchronize' && !(await isTrusted(pr.user.login))) {
@@ -306,7 +311,7 @@ if (isPr) {
   setOutput('checkout-ref', pr.head.sha);
 } else {
   const issue = await gh(`/repos/${repo}/issues/${number}`);
-  if (issue.state !== 'open') skip('issue is not open');
+  if (issue.state !== 'open' && !followOn) skip('issue is not open');
   let comments = issue.comments
     ? await paginate(`/repos/${repo}/issues/${number}/comments`, 100)
     : [];
@@ -363,12 +368,18 @@ if (isPr) {
   if (omitted) text += `\n(${omitted} later comments omitted)\n`;
   writeFileSync(join(ctx, 'issue.md'), text);
 
+  const { default_branch } = await gh(`/repos/${repo}`);
+  meta.baseRef = default_branch;
+  await writeGuide(default_branch);
+  setOutput('checkout-ref', default_branch);
+}
+
+if (!isPr || followOn) {
   const labels = await paginate(`/repos/${repo}/labels`);
   writeFileSync(
     join(ctx, 'labels.md'),
     labels.map(l => `- ${l.name}${l.description ? `: ${l.description}` : ''}`).join('\n') + '\n'
   );
-
   const open = await paginate(`/repos/${repo}/issues?state=open`, 1500);
   const closed = await paginate(`/repos/${repo}/issues?state=closed&sort=updated`, 300);
   writeFileSync(
@@ -378,11 +389,6 @@ if (isPr) {
       .map(i => `#${i.number} [${i.state}] ${i.title}`)
       .join('\n') + '\n'
   );
-
-  const { default_branch } = await gh(`/repos/${repo}`);
-  meta.baseRef = default_branch;
-  await writeGuide(default_branch);
-  setOutput('checkout-ref', default_branch);
 }
 
 if (request) writeFileSync(join(dir, 'request.md'), request + '\n');

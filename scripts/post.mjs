@@ -244,6 +244,37 @@ if (result.mode === 'review') {
     );
     summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
   }
+} else if (result.mode === 'issue') {
+  const existing = Number.isInteger(output.existing) && output.existing !== number ? output.existing : null;
+  let reply;
+  if (existing) {
+    reply = `#${existing} already covers this.`;
+  } else {
+    const have = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
+    const labels = (output.labels ?? []).filter(l => have.has(l) && l !== 'ready-for-pr' && l !== 'merge-ready' && !l.startsWith('bot-'));
+    const issue = await gh(`/repos/${repo}/issues`, {
+      method: 'POST',
+      body: {
+        title: String(output.title).trim().slice(0, 256),
+        body: clean(`${String(output.body).trim()}\n\n_Follows on from #${number}, opened at ${result.requester}'s request._`),
+        labels,
+      },
+    });
+    reply = `Opened #${issue.number}.`;
+  }
+  if (result.threadId) {
+    await graphql(
+      `mutation($id: ID!, $body: String!) {
+        addPullRequestReviewThreadReply(input: { pullRequestReviewThreadId: $id, body: $body }) {
+          clientMutationId
+        }
+      }`,
+      { id: result.threadId, body: reply }
+    );
+  } else {
+    await comment(result.commentUrl ? `${reply} (for ${result.commentUrl})` : reply);
+  }
+  summary(reply);
 } else if (result.mode === 'ask') {
   const answer = String(output.answer).trim();
   if (answer && result.threadId) {
@@ -446,9 +477,9 @@ async function updatePr() {
 
 // Pushes a stack the analyze job rebased, from its git bundle, after
 // checking each rebased branch sits on the base or the rebased layer below,
-// and only if no layer moved since the request. Layers whose conflicts the
-// model resolved lose auto-merge, since their approval predates that code,
-// and get a review.
+// and only if no layer moved since the request. Layers where the model's
+// resolution involved decisions lose auto-merge, since their approval
+// predates those, and get a review.
 async function rebase() {
   const { stack } = result;
   const dir = mkdtempSync(join(tmpdir(), 'bot-rebase-'));
@@ -524,7 +555,11 @@ async function rebase() {
 
   for (const layer of output.layers ?? []) {
     const l = changed.find(c => c.number === layer.number);
-    if (!l || !layer.conflicts?.length) continue;
+    if (!l) continue;
+    for (const c of layer.conflicts ?? []) console.log(`#${l.number} ${c.path}: ${c.resolution}`);
+    if (layer.tests) console.log(`#${l.number} tested: ${layer.tests}`);
+    const decisions = (layer.decisions ?? []).filter(d => d.trim());
+    if (!decisions.length) continue;
     const pr = await gh(`/repos/${repo}/pulls/${l.number}`);
     if (pr.auto_merge) {
       await graphql(
@@ -536,10 +571,9 @@ async function rebase() {
       method: 'POST',
       body: {
         body: clean(
-          `Rebased onto \`${result.baseRef}\`, resolving conflicts in:\n\n` +
-            layer.conflicts.map(c => `- \`${c.path}\`: ${c.resolution}`).join('\n') +
-            `\n\nTested: ${layer.tests}\n\n` +
-            (pr.auto_merge ? 'I turned off auto-merge, since the approval predates this resolution; re-approve to merge.' : 'Please review the resolution.')
+          `Rebased onto \`${result.baseRef}\`. Resolving the conflicts took decisions worth checking:\n\n` +
+            decisions.map(d => `- ${d}`).join('\n') +
+            (pr.auto_merge ? '\n\nI turned off auto-merge, since the approval predates these; re-approve to merge.' : '')
         ),
       },
     });

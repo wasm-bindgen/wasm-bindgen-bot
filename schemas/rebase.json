@@ -19,9 +19,14 @@
               "additionalProperties": false
             }
           },
-          "tests": { "type": "string", "description": "What you built and tested for this layer, and the result" }
+          "tests": { "type": "string", "description": "What you built and tested for this layer, and the result, in a sentence" },
+          "decisions": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Judgment calls a reviewer should check, each in a sentence; empty when the resolution only combined both sides"
+          }
         },
-        "required": ["number", "conflicts", "tests"],
+        "required": ["number", "conflicts", "tests", "decisions"],
         "additionalProperties": false
       },
       "description": "Each layer you rebased"
