@@ -74,11 +74,13 @@ PR, it answers in the thread.
   labels or closes it as triage does. When the issue is ready for a PR, it
   adds `bot-pr`, so its comment becomes the PR's brief. Only triage sets
   `ready-for-pr`.
-- `pr` (issues and the bot's own PRs): on an issue, implements it, or the
-  request in the comment, builds and tests it, and opens a PR from a
-  `wbg-bot/issue-<n>` branch. On one of the bot's PRs, addresses the open
-  review feedback with a new commit, never a force push, and replies in the
-  threads it handled. Changes to workflows are dropped, since the app can't
+- `pr` (issues and PRs): on an issue, implements it, or the request in the
+  comment, builds and tests it, and opens a PR from a `wbg-bot/issue-<n>`
+  branch. On a PR, addresses the open review feedback, or on someone else's
+  PR the change the request asks for, with a new commit, never a force push,
+  and replies in the threads it handled. PRs from forks get the commit when
+  their author allows edits by maintainers. On someone else's PR, the bot
+  turns off auto-merge, since an approval predates its commit. Changes to workflows are dropped, since the app can't
   push them.
 
 Anyone can comment on bot PRs, but the runs that review and update them only

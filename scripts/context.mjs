@@ -420,9 +420,9 @@ if (isPr) {
   }
   meta.headSha = pr.head.sha;
   // Anyone can comment on the bot's own PRs, but only collaborators' and the
-  // bot's words reach the runs that work on them, which can push code.
+  // bot's words reach the runs that work on them or push to a PR.
   const botPr = isBot(pr.user.login);
-  const heard = async login => !botPr || isBot(login) || (await isTrusted(login));
+  const heard = async login => !(botPr || mode === 'pr') || isBot(login) || (await isTrusted(login));
   if (meta.threadComment) {
     const thread = (await reviewThreads(number)).find(t =>
       t.comments.nodes.some(c => c.databaseId === meta.threadComment)
@@ -432,9 +432,16 @@ if (isPr) {
     request += `\n\n(Asked in the review thread on ${thread.path}:${thread.line ?? thread.originalLine}, id ${thread.id}.)`;
   }
   if (mode === 'pr') {
-    if (!isBot(pr.user.login) || pr.head.repo?.full_name !== repo) skip('pr only updates the bot\'s own PRs');
+    // Forks take pushes from the app when their author allows edits by
+    // maintainers.
+    if (!pr.head.repo) skip('the PR\'s fork is gone');
+    if (pr.head.repo.full_name !== repo && !pr.maintainer_can_modify) {
+      skip('the PR\'s author doesn\'t allow edits by maintainers');
+    }
     meta.prompt = 'pr-update';
     meta.headRef = pr.head.ref;
+    meta.headRepo = pr.head.repo.full_name;
+    meta.botPr = botPr;
     const reviews = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).filter(r => r.body);
     let text = '';
     for (const r of reviews) {

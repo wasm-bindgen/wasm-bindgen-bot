@@ -365,6 +365,43 @@ if (result.mode === 'review') {
   summary(`${triage ? `Triaged #${number}: ready-for-pr ${ready}` : `Investigated #${number} (${output.reproduced}): PR ${createPr && !!comment}`}, labels [${labels.join(', ')}], comment ${comment ? 'posted' : 'none'}${closed ? `, closed as ${close}` : ''}`);
 }
 
+// Pushes a commit of the changed files to a fork's PR branch over git, which
+// the app may do when the author allows edits by maintainers. The commit is
+// built from the PR head fetched from this repository, and only pushed as a
+// fast-forward.
+async function pushToFork(message) {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-fork-'));
+  const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
+  const bot = await gh('/users/wasm-bindgen-bot%5Bbot%5D');
+  const email = `${bot.id}+${bot.login}@users.noreply.github.com`;
+  const git = (args, input) => {
+    const r = spawnSync('git', ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, ...args], {
+      cwd: dir,
+      input,
+      encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_NAME: bot.login, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: bot.login, GIT_COMMITTER_EMAIL: email },
+    });
+    if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${r.stderr.replaceAll(auth, '***')}`);
+    return r.stdout.trim();
+  };
+  git(['init', '-q']);
+  git(['fetch', '-q', '--filter=blob:none', `https://github.com/${repo}.git`, `refs/pull/${number}/head`]);
+  if (git(['rev-parse', 'FETCH_HEAD']) !== result.baseSha) throw new Error('the PR moved while fetching it');
+  git(['read-tree', result.baseSha]);
+  for (const f of result.files) {
+    if (f.path.startsWith('.github/')) continue;
+    if (f.deleted) {
+      git(['update-index', '--force-remove', '--', f.path]);
+      continue;
+    }
+    const blob = git(['hash-object', '-w', '--stdin'], Buffer.from(f.content, 'base64'));
+    git(['update-index', '--add', '--cacheinfo', `${f.mode},${blob},${f.path}`]);
+  }
+  const commit = git(['commit-tree', git(['write-tree']), '-p', result.baseSha, '-m', message]);
+  git(['push', '-q', `https://github.com/${result.headRepo}.git`, `${commit}:refs/heads/${result.headRef}`]);
+  return commit;
+}
+
 // Commits the files the model changed onto the commit they were based on.
 async function commitFiles(message) {
   const base = await gh(`/repos/${repo}/git/commits/${result.baseSha}`);
@@ -452,13 +489,26 @@ async function updatePr() {
   }
   let sha = null;
   if (result.files?.length) {
-    const commit = await commitFiles(String(output.commit_message).trim() || 'Address review feedback');
-    // Never a force push: if the branch moved meanwhile, this fails.
-    await gh(`/repos/${repo}/git/refs/heads/${result.headRef}`, {
-      method: 'PATCH',
-      body: { sha: commit.sha, force: false },
-    });
-    sha = commit.sha;
+    const message = String(output.commit_message).trim() || 'Address review feedback';
+    if (result.headRepo && result.headRepo !== repo) {
+      sha = await pushToFork(message);
+    } else {
+      const commit = await commitFiles(message);
+      // Never a force push: if the branch moved meanwhile, this fails.
+      await gh(`/repos/${repo}/git/refs/heads/${result.headRef}`, {
+        method: 'PATCH',
+        body: { sha: commit.sha, force: false },
+      });
+      sha = commit.sha;
+    }
+    // An approval of someone else's PR predates the bot's commit.
+    if (!result.botPr && pr.auto_merge) {
+      await graphql(
+        `mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId } }`,
+        { id: pr.node_id }
+      );
+      await comment('I turned off auto-merge, since the approval predates my commit; re-approve to merge.');
+    }
   }
 
   // Threads the bot started are resolved once addressed by a commit; other
