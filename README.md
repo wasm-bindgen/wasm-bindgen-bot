@@ -87,6 +87,14 @@ Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone
 else are left out.
 
+- `rebase` (PRs): rebases a same-repo PR onto its base with plain git, no
+  model, and force-pushes it only if nobody pushed meanwhile. A PR in a
+  stack, whose base is another open PR's branch, is rebased with its whole
+  stack, bottom up, in one atomic push; a request on a layer above one that
+  is already being rebased is skipped. Conflicts are never resolved: it
+  comments with the conflicting files instead. The bot's own pushes don't
+  trigger re-reviews.
+
 A collaborator's approval of a same-repo PR also enables squash auto-merge,
 unless the PR is a draft or labelled "do not land", so it lands once checks
 pass. Approvals by the bot itself never do. Auto-merge has to be allowed in
@@ -101,7 +109,7 @@ those of other participants.
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `ready-for-pr` and `merge-ready` labels,
+Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
 then add `.github/workflows/bot.yml`:
 
 ```yaml

@@ -54,7 +54,7 @@ function skip(reason) {
 // Every command is either `@wbg-bot <verb>` in a comment or the `bot-<verb>`
 // label, from a collaborator, and applies to PRs, issues or both. `pr` opens
 // a PR for an issue, or updates one of the bot's own PRs.
-const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any' };
+const VERBS = { review: 'pr', triage: 'issue', investigate: 'issue', pr: 'any', rebase: 'pr' };
 // Any other comment to the bot is a question, answered read-only.
 const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'triage' };
 
@@ -118,9 +118,38 @@ if (requester && !fromApp && !(await isTrusted(requester))) skip(`${requester} i
 
 const meta = { repo, number, mode, requester, label, ...meta0 };
 
+// Rebasing needs no model, so the request goes straight to the post job. A PR
+// stacked on other PRs, through base branches that are their heads, is
+// rebased with its whole stack, bottom up, so one request on any layer keeps
+// the stack consistent. When a lower layer also has a rebase requested, its
+// run covers this one.
+if (mode === 'rebase') {
+  const open = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
+    p => p.head.repo?.full_name === repo
+  );
+  const byHead = new Map(open.map(p => [p.head.ref, p]));
+  let pr = open.find(p => p.number === number);
+  if (!pr) skip('only open PRs from branches in this repository can be rebased');
+  while (byHead.has(pr.base.ref)) {
+    pr = byHead.get(pr.base.ref);
+    if (pr.labels.some(l => l.name === 'bot-rebase')) skip(`#${pr.number} below it is being rebased with its stack`);
+  }
+  const stack = [];
+  const queue = [{ pr, parent: null }];
+  while (queue.length) {
+    const { pr: p, parent } = queue.shift();
+    stack.push({ number: p.number, headRef: p.head.ref, headSha: p.head.sha, parent });
+    for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
+  }
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...meta, baseRef: pr.base.ref, stack }));
+  process.exit(0);
+}
+
 if (isPr) {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open') skip('PR is not open');
+  // The bot's own pushes, such as rebases, only move the PR onto newer code.
+  if (event.action === 'synchronize' && isBot(event.sender?.login)) skip('push by the bot');
   if (event.action === 'synchronize' && !(await isTrusted(pr.user.login))) {
     skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
   }

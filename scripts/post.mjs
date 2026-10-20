@@ -1,7 +1,10 @@
 // Turns the model's untrusted structured output into GitHub writes, enforcing
 // what it may touch: one comment or approval review anchored to diff lines,
 // or existing labels plus a comment.
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { gh, graphql, paginate, repo, commentableLines, summary, isBot, reviewThreads, isTrusted } from './lib.mjs';
 
 const MAX_COMMENTS = 25;
@@ -221,6 +224,8 @@ if (result.mode === 'review') {
   summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
 } else if (result.mode === 'pr') {
   await postPr();
+} else if (result.mode === 'rebase') {
+  await rebase();
 } else if (result.mode === 'automerge') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
@@ -330,8 +335,9 @@ async function commitFiles(message) {
   });
 }
 
-const comment = body =>
-  gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(body) } });
+function comment(body) {
+  return gh(`/repos/${repo}/issues/${number}/comments`, { method: 'POST', body: { body: clean(body) } });
+}
 
 // Opens a PR for an issue, or adds a commit to one of the bot's own PRs. Bot
 // PRs are then reviewed by the bot, which can send them back with `bot-pr`.
@@ -429,4 +435,93 @@ async function updatePr() {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
   }
   summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
+}
+
+// Rebases a PR, or its whole stack, onto the base with git, never resolving
+// conflicts, and force-pushes every layer atomically, only if none has moved
+// since the request.
+async function rebase() {
+  const { stack } = result;
+  const botUser = await gh(`/users/${encodeURIComponent('wasm-bindgen-bot[bot]')}`);
+  const dir = mkdtempSync(join(tmpdir(), 'bot-rebase-'));
+  const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
+  const git = (...args) =>
+    spawnSync(
+      'git',
+      [
+        '-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`,
+        '-c', `user.name=${botUser.login}`,
+        '-c', `user.email=${botUser.id}+${botUser.login}@users.noreply.github.com`,
+        ...args,
+      ],
+      { cwd: dir, encoding: 'utf8' }
+    );
+  const must = (...args) => {
+    const r = git(...args);
+    if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${r.stderr.replaceAll(auth, '***')}`);
+    return r.stdout.trim();
+  };
+  const unlabelAll = async () => {
+    for (const layer of stack) {
+      const res = await gh(`/repos/${repo}/issues/${layer.number}/labels/bot-rebase`, { method: 'DELETE', raw: true });
+      if (!res.ok && res.status !== 404) console.log(`Removing bot-rebase from #${layer.number}: ${res.status}`);
+    }
+  };
+
+  must('init', '-q');
+  must('remote', 'add', 'origin', `https://github.com/${repo}.git`);
+  must('fetch', '-q', '--filter=blob:none', 'origin',
+    `+refs/heads/${result.baseRef}:refs/remotes/origin/${result.baseRef}`,
+    ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`));
+  for (const l of stack) {
+    const now = must('rev-parse', `origin/${l.headRef}`);
+    if (now !== l.headSha) {
+      console.log(`Not rebasing: ${l.headRef} moved to ${now} since the request`);
+      await unlabelAll();
+      return;
+    }
+  }
+
+  const oldHead = new Map(stack.map(l => [l.headRef, l.headSha]));
+  const newHead = new Map();
+  for (const l of stack) {
+    must('checkout', '-q', '-B', 'work', l.headSha);
+    const r = l.parent
+      ? git('rebase', '-q', '--onto', newHead.get(l.parent), oldHead.get(l.parent))
+      : git('rebase', '-q', `origin/${result.baseRef}`);
+    if (r.status !== 0) {
+      const conflicts = git('diff', '--name-only', '--diff-filter=U').stdout.trim().split('\n').filter(Boolean);
+      git('rebase', '--abort');
+      await comment(
+        `Rebasing ${stack.length > 1 ? `the stack (at #${l.number}) ` : ''}onto \`${result.baseRef}\` conflicts` +
+          (conflicts.length ? ` in:\n\n${conflicts.map(f => `- \`${f}\``).join('\n')}` : '.') +
+          '\n\nThis needs a manual rebase.'
+      );
+      await unlabelAll();
+      summary(`Rebase of #${number} conflicts at #${l.number}`);
+      return;
+    }
+    newHead.set(l.headRef, must('rev-parse', 'HEAD'));
+  }
+
+  const changed = stack.filter(l => newHead.get(l.headRef) !== l.headSha);
+  if (!changed.length) {
+    await unlabelAll();
+    summary(`#${number} is already up to date with ${result.baseRef}`);
+    return;
+  }
+  const push = git('push', '-q', '--atomic',
+    ...changed.map(l => `--force-with-lease=refs/heads/${l.headRef}:${l.headSha}`),
+    'origin', ...changed.map(l => `${newHead.get(l.headRef)}:refs/heads/${l.headRef}`));
+  await unlabelAll();
+  if (push.status !== 0) {
+    const err = push.stderr.replaceAll(auth, '***');
+    // The app can't push commits that change workflows; otherwise a branch
+    // moved since the request, and whoever moved it wins.
+    if (/workflow/i.test(err)) {
+      await comment('Rebased cleanly, but I can\'t push commits that change workflows, so this needs a manual rebase.');
+    }
+    throw new Error(`push failed: ${err}`);
+  }
+  summary(`Rebased ${changed.map(l => `#${l.number}`).join(', ')} onto ${result.baseRef}`);
 }
