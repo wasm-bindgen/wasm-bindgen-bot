@@ -60,6 +60,70 @@ function lineDiff(x, y) {
   return ops.map((o, k) => (keep[k] ? o : keep[k - 1] ? '...' : null)).filter(o => o !== null).join('\n');
 }
 
+// Pins a PR adds to commits of other repositories in the organization, such
+// as git dependencies or submodules, go stale when the PR they point into is
+// rebased or merges. Each is traced to its current equivalent: the commit
+// with the same author and message on the PR that now has it, or the merge
+// commit once that PR merged. Workflows are left out, since the app can't
+// push them.
+const PIN = /(?:github\.com[/:]|github:)([\w.-]+)\/([\w.-]+?)(?:\.git)?(?=[^\w.-])[^\n]*?\b([0-9a-f]{40})\b/g;
+async function stalePins(number, headSha, baseRef) {
+  const owner = repo.split('/')[0];
+  const files = await paginate(`/repos/${repo}/pulls/${number}/files`, 3000);
+  const found = new Map();
+  let modules;
+  for (const f of files) {
+    if (!f.patch || f.filename.startsWith('.github/workflows/')) continue;
+    for (const line of f.patch.split('\n').filter(l => l.startsWith('+'))) {
+      const sub = /^\+Subproject commit ([0-9a-f]{40})/.exec(line);
+      if (sub) {
+        modules ??= (await fileAt('.gitmodules', headSha)) ?? '';
+        const url = new RegExp(`path = ${f.filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n\\s*url = (\\S+)`).exec(modules)?.[1];
+        const m = url && /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/.exec(url);
+        if (m) found.set(`${m[1]}/${m[2]}@${sub[1]}`, { repo: `${m[1]}/${m[2]}`, sha: sub[1], file: f.filename });
+        continue;
+      }
+      for (const m of line.matchAll(PIN)) {
+        found.set(`${m[1]}/${m[2]}@${m[3]}`, { repo: `${m[1]}/${m[2]}`, sha: m[3], file: f.filename });
+      }
+    }
+  }
+  // Pins the base branch shares aren't the PR's own.
+  const base = new Map();
+  const stale = [];
+  for (const pin of found.values()) {
+    if (pin.repo.split('/')[0] !== owner) continue;
+    if (!base.has(pin.file)) base.set(pin.file, (await fileAt(pin.file, baseRef)) ?? '');
+    if (base.get(pin.file).includes(pin.sha)) continue;
+    const next = await currentEquivalent(pin.repo, pin.sha);
+    if (next) stale.push({ ...pin, ...next });
+  }
+  return stale;
+}
+
+async function currentEquivalent(target, sha) {
+  const res = await gh(`/repos/${target}/commits/${sha}`, { raw: true });
+  if (!res.ok) return null;
+  const pinned = await res.json();
+  const key = c => `${c.commit.author.email}\n${c.commit.message.trim()}`;
+  const { default_branch } = await gh(`/repos/${target}`);
+  const onMain = await gh(`/repos/${target}/compare/${default_branch}...${sha}`, { raw: true });
+  if (onMain.ok && ['behind', 'identical'].includes((await onMain.json()).status)) return null;
+  const since = pinned.commit.committer.date;
+  const prs = (await paginate(`/repos/${target}/pulls?state=all&sort=updated&direction=desc`, 100)).filter(
+    p => p.updated_at >= since && (p.state === 'open' || p.merged_at)
+  );
+  for (const p of prs) {
+    const commits = await paginate(`/repos/${target}/pulls/${p.number}/commits`, 250);
+    if (p.state === 'open' && commits.some(c => c.sha === sha)) return null;
+    const match = commits.find(c => c.sha === sha || key(c) === key(pinned));
+    if (!match) continue;
+    const to = p.merged_at ? p.merge_commit_sha : match.sha;
+    return to === sha ? null : { to, via: `${target}#${p.number}, ${p.merged_at ? 'merged' : 'rebased'}` };
+  }
+  return null;
+}
+
 // After a rebase, the reviewed commit and the head differ by everything the
 // base gained meanwhile. Instead each commit is paired with its counterpart in
 // the reviewed history by author and message, and only commits whose changes
@@ -311,6 +375,13 @@ if (mode === 'rebase') {
       `\n${p.body || '(no description)'}\n`;
     for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
   }
+  let pinText = '';
+  for (const l of stack) {
+    const pins = await stalePins(l.number, l.headSha, baseRef);
+    if (pins.length) l.pins = pins.length;
+    for (const p of pins) pinText += `- #${l.number}, \`${p.file}\`: ${p.repo} ${p.sha} -> ${p.to} (${p.via})\n`;
+  }
+  if (pinText) writeFileSync(join(ctx, 'pins.md'), pinText);
   Object.assign(meta, { baseRef, stack, ...(retarget && { retarget }) });
   writeFileSync(join(ctx, 'stack.md'), text);
   await writeGuide(baseRef);

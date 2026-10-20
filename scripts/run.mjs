@@ -59,6 +59,8 @@ const sandboxEnv = [
   ...(botUser ? [
     `GIT_COMMITTER_NAME=${botUser.login}`,
     `GIT_COMMITTER_EMAIL=${botUser.id}+${botUser.login}@users.noreply.github.com`,
+    `GIT_AUTHOR_NAME=${botUser.login}`,
+    `GIT_AUTHOR_EMAIL=${botUser.id}+${botUser.login}@users.noreply.github.com`,
   ] : []),
 ];
 const sandboxCmd = cmd => ['-u', SANDBOX_USER, '-H', 'env', '-i', ...sandboxEnv, ...cmd];
@@ -283,6 +285,12 @@ function rebaseWithoutModel() {
   asSandbox(['git', '-C', sandboxRepo, 'fetch', '-q', 'origin',
     `+refs/heads/${baseRef}:refs/remotes/origin/${baseRef}`,
     ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`)]);
+  // Stale pins are updated by the model, along with the rebase.
+  if (stack.some(l => l.pins)) {
+    console.log('stale pins; handing the rebase to the model');
+    git('checkout', '-q', '--detach', `origin/${baseRef}`);
+    return false;
+  }
   for (const l of stack) {
     git('checkout', '-q', '-B', `bot-rebased/${l.headRef}`, l.headSha);
     const parent = stack.find(p => p.headRef === l.parent);

@@ -97,7 +97,9 @@ else are left out.
   stack, bottom up; a request on a layer above one that is already being
   rebased is skipped. Once the PR below a stack's bottom layer has merged, the
   bottom layer is unstacked: moved onto the default branch, without the
-  merged PR's commits. The rebased branches come back as a git bundle, and
+  merged PR's commits. Pins a PR adds to commits of other repositories in the
+  organization, such as git dependencies or submodules, are moved in a commit
+  on top when the PR they point into was rebased or merged. The rebased branches come back as a git bundle, and
   are force-pushed in one atomic push only if nobody pushed meanwhile.
   Rebases go through without a comment or a review, unless resolving a
   conflict took a judgment call, such as choosing one side's behaviour. Then
