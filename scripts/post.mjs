@@ -470,7 +470,8 @@ async function postPr() {
   if (!ref.ok) throw new Error(`creating ${branch}: ${ref.status} ${await ref.text()}`);
 
   let body = String(output.body).trim();
-  if (forIssue && !new RegExp(`#${number}\\b`).test(body)) body += `\n\nCloses #${number}`;
+  // Issue references lead the description.
+  if (forIssue && !new RegExp(`#${number}\\b`).test(body.split('\n\n')[0])) body = `Resolves #${number}.\n\n${body}`;
   body += isBot(result.requester)
     ? `\n\n_Started from the investigation in #${number}._`
     : `\n\n_Requested by ${result.requester}${forIssue ? '' : ' from the Actions tab'}._`;
