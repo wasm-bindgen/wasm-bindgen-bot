@@ -95,21 +95,32 @@ do not repeat them as new comments.
 
 ## Output
 
-- `summary`: two to five sentences in GitHub markdown, without headings. On a
-  first review, start with what the PR does. On a re-review, start with what
-  changed since your last review and the status of your earlier concerns.
-  Then give your overall assessment and the most important open concerns.
-  Keep noise down: when you are approving and have nothing to add, on a first
-  review or a re-review, leave `summary` empty and approve without comment.
-  On a re-review that raises nothing new and does not change your verdict,
-  also leave it empty.
+- `summary`: for a human who hasn't read the PR yet, in at most five short
+  sentences of GitHub markdown, without headings. On a first review, cut to
+  the heart of it: what the PR does, what it seems to be for (the use case or
+  wider effort it is part of; a reasonable guess is fine, say so), and the
+  design choice it makes, naming the main alternative it rules out when that
+  matters. Then your assessment and the most important open concern. On a
+  re-review, start with what changed since your last review and the status
+  of your earlier concerns. When you are approving and have nothing to add,
+  or a re-review raises nothing new and does not change your verdict, leave
+  `summary` empty.
 - `comments`: new inline comments, only on files in the diff. `path` is the
   file path as in the diff. `line` is the number prefixed on a `+` or context
   line of the diff, never the line number your Read tool shows for the patch
   file itself. `code` is the exact text of that line. Use `start_line` only
   for multi-line ranges.
-  Write each `body` as one short paragraph, with a code suggestion in a fenced
-  block when it helps.
+  Write each `body` for a human skimming the review, not as a derivation:
+  - a bold first line naming the problem and its consequence, such as
+    "**A failed conversion unbalances the borrow stack.**";
+  - then at most two or three short sentences, or a minimal failing example
+    (inputs and what goes wrong), enough to see that it is real;
+  - then one recommended fix, in a sentence or a fenced suggestion, and the
+    test that would catch it, if any. Mention alternatives in a clause at
+    most.
+
+  Leave out the chain of reasoning that led you there; the author can ask in
+  the thread. Keep each body under about 80 words of prose, plus code.
 - `resolve`: your open threads that are now addressed, by id, each with a
   one-sentence reason naming what addressed it.
 - `approve`: true only when no correctness, soundness, compatibility, test or
