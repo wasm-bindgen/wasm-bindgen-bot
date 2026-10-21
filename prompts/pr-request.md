@@ -31,9 +31,6 @@ anyway. Changes under `.github/workflows/` cannot be pushed and are dropped.
 ## Output
 
 - `title`: a concise PR title in the repository's style.
-- `body`: the PR description. Explain the reason for the change in a sentence
-  or two, then what changed as short bullets, then how it was tested,
-  including the commands you ran and whether they passed. Note anything left
-  undone or uncertain. Do not use headings for a short description.
+{{include:pr-body}}
 - `comment`: null when you made changes. When you made none, explain why
   briefly.
