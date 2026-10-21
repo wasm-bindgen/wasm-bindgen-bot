@@ -249,11 +249,38 @@ if (name === 'pull_request_review') {
   if (isBot(review.user.login) || !(await isTrusted(review.user.login))) {
     skip(`${review.user.login} is not a collaborator`);
   }
+  if (!pr.labels.some(l => l.name === 'merge-ready')) skip('approved, but not labelled merge-ready');
   if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
   writeFileSync(
     join(dir, 'result.json'),
     JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver: review.user.login })
   );
+  process.exit(0);
+}
+
+// A collaborator's approval and the `merge-ready` label together enable
+// auto-merge, so adding the label checks for an approval, and removing it
+// turns auto-merge off again.
+if (name === 'pull_request_target' && /^(un)?labeled$/.test(event.action) && event.label.name === 'merge-ready') {
+  const pr = event.pull_request;
+  if (event.action === 'unlabeled') {
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, number: pr.number, mode: 'automerge-off' }));
+    process.exit(0);
+  }
+  const sender = event.sender.login;
+  if (!isBot(sender) && !(await isTrusted(sender))) skip(`${sender} is not a collaborator`);
+  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  const latest = new Map();
+  for (const r of await paginate(`/repos/${repo}/pulls/${pr.number}/reviews`)) {
+    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') latest.set(r.user.login, r.state);
+  }
+  if ([...latest.values()].includes('CHANGES_REQUESTED')) skip('changes are requested');
+  let approver = null;
+  for (const [login, state] of latest) {
+    if (state === 'APPROVED' && !isBot(login) && (await isTrusted(login))) approver = login;
+  }
+  if (!approver) skip('merge-ready, but no collaborator has approved');
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver }));
   process.exit(0);
 }
 
@@ -264,6 +291,7 @@ let requester;
 let label;
 let request = '';
 const meta0 = {};
+if (event.action === 'unlabeled') skip('label removed');
 if (name === 'pull_request' || name === 'pull_request_target' || name === 'issues') {
   isPr = name !== 'issues';
   number = (isPr ? event.pull_request : event.issue).number;

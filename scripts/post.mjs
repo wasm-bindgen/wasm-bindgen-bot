@@ -231,6 +231,15 @@ if (result.mode === 'review') {
     await gh(`/repos/${repo}/issues/${n}/labels`, { method: 'POST', body: { labels: ['bot-rebase'] } });
   }
   summary(`Requested rebases of ${result.numbers.map(n => `#${n}`).join(', ')}`);
+} else if (result.mode === 'automerge-off') {
+  const pr = await gh(`/repos/${repo}/pulls/${number}`);
+  if (pr.state === 'open' && pr.auto_merge) {
+    await graphql(
+      `mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId } }`,
+      { id: pr.node_id }
+    );
+    summary(`Turned off auto-merge on #${number}, since merge-ready was removed`);
+  }
 } else if (result.mode === 'automerge') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open' || pr.draft || pr.auto_merge) {

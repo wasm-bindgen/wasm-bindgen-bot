@@ -124,11 +124,15 @@ bot's workflow, choosing the command, the issue or PR number and a request.
 Without a number, `pr` opens a PR from the request alone. `issue` always
 needs a request.
 
-A collaborator's approval of a same-repo PR also enables squash auto-merge,
-unless the PR is a draft or labelled "do not land", so it lands once checks
-pass. GitHub can't auto-merge stacked PRs, so the last open PR of a stack is
-unstacked first; earlier layers wait. Approvals by the bot itself never do. Auto-merge has to be allowed in
-the repository settings.
+A collaborator's approval together with the `merge-ready` label enables squash
+auto-merge, so the PR lands once checks pass. Approving a labelled PR, or
+labelling an approved one, triggers it; approvals by the bot never count, and
+drafts, PRs with changes requested and PRs labelled "do not land" are skipped.
+Removing `merge-ready` turns auto-merge off again, as the bot's own reviews do
+when they find new concerns. A PR whose checks have already passed is merged
+directly. GitHub can't auto-merge stacked PRs, so the last open PR of a stack
+is unstacked first; earlier layers wait. Auto-merge has to be allowed in the
+repository settings.
 
 All of them weigh the discussion by project role: core team members vote on
 direction and collaborators review, so their positions settle points over
@@ -161,7 +165,7 @@ name: wasm-bindgen-bot
 # with merge conflicts.
 on:
   pull_request_target:
-    types: [opened, ready_for_review, synchronize, labeled]
+    types: [opened, ready_for_review, synchronize, labeled, unlabeled]
   issues:
     types: [opened, labeled]
   issue_comment:
@@ -200,7 +204,10 @@ jobs:
     if: >-
       (github.event_name == 'pull_request_target' && (
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
-        (github.event.action != 'labeled' && !github.event.pull_request.draft &&
+        (github.event.label.name == 'merge-ready' &&
+          (github.event.action == 'labeled' || github.event.action == 'unlabeled')) ||
+        (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
+          !github.event.pull_request.draft &&
           (github.event.pull_request.user.type != 'Bot' ||
             github.event.pull_request.user.login == 'wasm-bindgen-bot[bot]')))) ||
       (github.event_name == 'issues' && (
@@ -219,9 +226,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
-      # Comment and approval runs start before the bot checks who wrote them,
-      # so they get their own group rather than cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || '' }}
+      # Comment, approval and merge-ready runs get their own group rather than
+      # cancelling reviews in progress.
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || github.event.label.name == 'merge-ready' && '-merge-ready' || '' }}
       cancel-in-progress: true
     permissions:
       contents: read
