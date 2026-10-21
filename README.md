@@ -23,12 +23,13 @@ Each run has two jobs:
   requires to resolve review threads), and never runs a model.
 
 A review is only posted if the PR head hasn't moved since it was analyzed, so
-runs superseded by a newer push never post. The bot may approve any PR, which
-never lands anything by itself, and when there is nothing to add it approves
-without a comment. Otherwise it lists what it wants changed under "Requesting
-changes", though the review itself is never a blocking change request. Set
-the `post` action's `approve` input to `collaborators` or `never` to restrict
-approvals.
+runs superseded by a newer push never post. The bot never approves or
+requests changes: its reviews are comments, and its verdict is the
+`merge-ready` label, added when it has no concerns, without a comment when it
+has nothing to add, and removed when it lists what it wants changed under "Not
+merge-ready". The label alone never lands anything; with a collaborator's
+approval it enables auto-merge. Set the `post` action's `approve` input to
+`collaborators` or `never` to restrict whose PRs it marks.
 
 Collaborators are users with the maintain or admin role on the repository,
 which the org's `collaborators` team grants; the core team are the org owners
@@ -87,9 +88,8 @@ Anyone can comment on bot PRs, but the runs that review and update them only
 see comments from collaborators and the bot itself. The bot reviews each one
 after every push. While it has concerns it adds
 `bot-pr` to send the PR back, for up to three rounds, after which it leaves
-the PR to a human. GitHub doesn't let the app approve its own PRs, so once it has no
-concerns it adds `merge-ready` instead, and removes it again if a later
-review finds some. A human approval is always needed.
+the PR to a human. Once it has no concerns it adds `merge-ready`, as on any
+PR; a human approval is always needed.
 
 Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone

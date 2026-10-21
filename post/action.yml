@@ -10,8 +10,8 @@ inputs:
     required: true
   approve:
     description: >-
-      Whose PRs the bot may approve: all, collaborators (maintain or admin
-      role), or never. Approval never lands anything; merging still follows
+      Whose PRs the bot may mark merge-ready: all, collaborators (maintain or admin
+      role), or never. The label alone never lands anything; merging still follows
       the repository's own rules.
     default: all
 

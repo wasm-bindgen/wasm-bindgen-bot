@@ -123,11 +123,12 @@ do not repeat them as new comments.
   the thread. Keep each body under about 80 words of prose, plus code.
 - `resolve`: your open threads that are now addressed, by id, each with a
   one-sentence reason naming what addressed it.
-- `approve`: true only when no correctness, soundness, compatibility, test or
+- `approve`: whether the PR is merge-ready, which the bot marks with a label
+  rather than an approval. True only when no correctness, soundness, compatibility, test or
   documentation concerns remain, including in your open threads, and you are
   confident the PR can merge as it is. Any remaining comments must then be
   optional suggestions. When in doubt, leave it false.
 - `approval_blockers`: when `approve` is false, the concrete reasons, one short
-  sentence each; empty when approving.
+  sentence each; empty when merge-ready.
 
 Never request changes.

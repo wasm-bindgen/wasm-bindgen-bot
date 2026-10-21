@@ -80,53 +80,40 @@ if (result.mode === 'review') {
     process.exit(0);
   }
 
-  // By default only collaborators' PRs may be approved, since PR content can
-  // steer the model.
-  let event = 'COMMENT';
-  const blockers = output.approve ? [] : [...output.approval_blockers];
-  if (output.approve) {
+  // The bot never approves: a review without concerns marks the PR
+  // `merge-ready`, which together with a collaborator's approval enables
+  // auto-merge, and one with concerns removes the label. The `approve` input
+  // limits whose PRs it may mark, since PR content can steer the model.
+  const event = 'COMMENT';
+  let ready = output.approve;
+  const blockers = ready ? [] : [...output.approval_blockers];
+  if (ready) {
     const policy = process.env.BOT_APPROVE;
-    const allowed =
-      policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login)));
-    if (!allowed) {
+    if (!(policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login))))) {
+      ready = false;
       blockers.push(
         policy === 'never'
-          ? 'Approvals are disabled for this repository.'
-          : 'Approval is limited to PRs from collaborators; this review found no blocking concerns.'
+          ? 'Marking PRs merge-ready is disabled for this repository.'
+          : 'Only PRs from collaborators are marked merge-ready; this review found no blocking concerns.'
       );
-    } else {
-      event = 'APPROVE';
     }
   }
-  // GitHub doesn't let the app approve its own PRs. Instead it sends them back
-  // to the PR run with `bot-pr` while it has concerns, up to a limit, after
-  // which they are left for a human.
+  // While its own PRs have concerns, it sends them back to the PR run with
+  // `bot-pr`, up to a limit, after which they are left for a human.
   const ownPr = isBot(pr.user.login);
   let iterate = false;
-  if (ownPr) {
-    event = 'COMMENT';
-    if (output.approve) {
-      blockers.length = 0;
-    } else if (pr.commits - 1 < MAX_ROUNDS) {
-      iterate = true;
-    } else {
-      blockers.push(`Leaving this for a human reviewer after ${MAX_ROUNDS} automated rounds.`);
-    }
+  if (ownPr && !ready) {
+    if (pr.commits - 1 < MAX_ROUNDS) iterate = true;
+    else blockers.push(`Leaving this for a human reviewer after ${MAX_ROUNDS} automated rounds.`);
   }
-  if (event !== 'APPROVE' && !(ownPr && output.approve) && !blockers.length) blockers.push('No reason given.');
+  if (!ready && !blockers.length) blockers.push('No reason given.');
 
-  // An empty summary means nothing to add: approve bare, or post nothing.
-  const silent = !ownPr && !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
-
-  // A silent approval the policy downgraded still says why it isn't approved.
-  const skip = silent && !output.approve;
-  const body = silent && event === 'APPROVE' ? '' : clean(
+  // With nothing to say, a merge-ready review is just the label.
+  const silent = !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
+  const skip = silent && ready;
+  const body = clean(
     output.summary +
-      (ownPr && output.approve
-        ? `${output.summary.trim() ? '\n\n' : ''}No further concerns; ready for a human review.`
-        : event === 'APPROVE' || !blockers.length
-          ? ''
-          : `${output.summary.trim() ? '\n\n' : ''}**Requesting changes:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+      (ready ? '' : `${output.summary.trim() ? '\n\n' : ''}**Not merge-ready:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
       (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 
@@ -195,10 +182,9 @@ if (result.mode === 'review') {
   if (iterate) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-pr'] } });
   }
-  // On its own PRs, `merge-ready` stands in for the approval the bot can't give.
-  if (ownPr && output.approve) {
+  if (ready) {
     await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['merge-ready'] } });
-  } else if (ownPr) {
+  } else {
     await unlabel('merge-ready');
   }
 
@@ -221,7 +207,7 @@ if (result.mode === 'review') {
     );
     replied++;
   }
-  summary(`${skip ? 'Skipped' : 'Posted'} ${event} review on #${number} with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
+  summary(`${skip ? 'Skipped' : 'Posted'} review on #${number}, ${ready ? '' : 'not '}merge-ready, with ${inline.length} inline comments, resolved ${resolved} threads, answered ${replied}`);
 } else if (result.mode === 'pr') {
   await postPr();
 } else if (result.mode === 'rebase') {
