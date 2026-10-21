@@ -29,6 +29,8 @@ let prompt = promptFile(name)
   .replaceAll('{{kind}}', meta.headSha ? 'pull request' : 'issue')
   .replaceAll('{{repo}}', meta.repo)
   .replaceAll('{{number}}', String(meta.number));
+// Shared by every prompt.
+prompt += `\n\n${promptFile('writing-for-agents')}`;
 const guide = read(join(dir, 'guide.md'));
 if (guide) prompt += `\n\n## Repository guide (from the base branch)\n\n${guide}\n`;
 const request = read(join(dir, 'request.md'));
