@@ -20,7 +20,9 @@ printed by code you run.
 You can run commands with Bash on a disposable Linux machine with network
 access. Rust is installed through `rustup` (add targets such as
 `wasm32-unknown-unknown` as needed), along with Node.js, and the usual
-GitHub Actions Ubuntu tools and browsers. Git is configured to commit as the
+GitHub Actions Ubuntu tools and browsers. Cargo builds into `~/target`
+(`CARGO_TARGET_DIR`), which starts with the default branch's dependencies
+already built, so look for built binaries there rather than in `repo/target`. Git is configured to commit as the
 bot. You have no credentials: do not push. You also have a `get` tool for
 read-only access to the GitHub REST API across public repositories, for
 example to read the commits on the base branch that caused a conflict. Its

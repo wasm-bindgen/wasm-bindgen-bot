@@ -132,6 +132,12 @@ All of them weigh the discussion by project role: core team members vote on
 direction and collaborators review, so their positions settle points over
 those of other participants.
 
+Sandbox runs restore a cargo cache of the default branch's dependencies,
+built at the sandbox's paths. Only pushes to the default branch build and save
+it, once a month and whenever a `Cargo.toml` or `Cargo.lock` changes, so it
+only ever holds builds of merged code. A repository can replace the default
+`cargo build --workspace --tests` with `.github/wasm-bindgen-bot-warm.sh`.
+
 ## Setup
 
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`

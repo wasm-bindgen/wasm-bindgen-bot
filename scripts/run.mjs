@@ -1,10 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { summary } from './lib.mjs';
+import { SANDBOX_USER, SANDBOX_HOME, CARGO_TARGET_DIR, sandboxRepo, createSandbox, installRust } from './sandbox.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const dir = process.env.BOT_DIR;
@@ -16,9 +17,6 @@ const setting = name => process.env[`BOT_${meta.mode.toUpperCase()}_${name}`];
 // Modes that run code get a sandbox and more time.
 const MINUTES = { review: 15, triage: 15, ask: 15, issue: 15, investigate: 45, pr: 75, rebase: 60 };
 const executes = ['investigate', 'pr', 'rebase'].includes(meta.mode);
-const SANDBOX_USER = 'wbg-sandbox';
-const SANDBOX_HOME = `/home/${SANDBOX_USER}`;
-const sandboxRepo = `${SANDBOX_HOME}/work/repo`;
 
 const read = p => (existsSync(p) ? readFileSync(p, 'utf8').trim() : '');
 const promptFile = name => readFileSync(join(root, 'prompts', `${name}.md`), 'utf8').trim();
@@ -55,6 +53,7 @@ const botUser = executes
 const sandboxEnv = [
   `PATH=${SANDBOX_HOME}/.cargo/bin:${process.env.PATH}`,
   `HOME=${SANDBOX_HOME}`,
+  `CARGO_TARGET_DIR=${CARGO_TARGET_DIR}`,
   'GIT_TERMINAL_PROMPT=0',
   ...(botUser ? [
     `GIT_COMMITTER_NAME=${botUser.login}`,
@@ -141,14 +140,13 @@ if (!executes) {
   // runner user, which that user can't inspect. The helpers listen on
   // localhost and add the tokens to requests themselves.
   const work = `${SANDBOX_HOME}/work`;
-  run('sudo', ['useradd', '--create-home', '--shell', '/bin/bash', SANDBOX_USER]);
-  run('sudo', ['mkdir', '-p', work]);
+  createSandbox();
   run('sudo', ['cp', '-a', join(dir, 'ctx'), join(dir, 'repo'), work]);
   run('sudo', ['chown', '-R', `${SANDBOX_USER}:${SANDBOX_USER}`, work]);
   if (meta.mode === 'rebase' && rebaseWithoutModel()) {
     proc = { stdout: JSON.stringify({ type: 'result', subtype: 'clean', num_turns: 0, total_cost_usd: 0, structured_output: { layers: [], comment: null } }) };
   } else {
-  installRust();
+  installRust(asSandbox);
 
   const gateway = await serve('gateway-proxy.mjs', [], {
     CF_AIG_TOKEN: token,
@@ -322,25 +320,4 @@ function collectRebase() {
   if (data.length > 30 * 1024 * 1024) throw new Error('rebase bundle is too large');
   console.log(`Rebased: ${refs.join(', ')}`);
   return { bundle: data.toString('base64') };
-}
-
-// Shares the runner's preinstalled toolchain with the sandbox through hard
-// links, which is near instant. The sandbox owns the directories, so it can
-// add targets and components, but not the runner's existing files. Without a
-// preinstalled toolchain it installs its own.
-function installRust() {
-  const home = homedir();
-  if (existsSync(join(home, '.rustup')) && existsSync(join(home, '.cargo', 'bin'))) {
-    run('sudo', ['mkdir', '-p', `${SANDBOX_HOME}/.cargo`]);
-    run('sudo', ['cp', '-al', join(home, '.rustup'), `${SANDBOX_HOME}/.rustup`]);
-    run('sudo', ['cp', '-al', join(home, '.cargo', 'bin'), `${SANDBOX_HOME}/.cargo/bin`]);
-    run('sudo', ['find', `${SANDBOX_HOME}/.rustup`, `${SANDBOX_HOME}/.cargo`, '-type', 'd',
-      '-exec', 'chown', `${SANDBOX_USER}:${SANDBOX_USER}`, '{}', '+']);
-    return;
-  }
-  console.log('Installing Rust for the sandbox user');
-  asSandbox([
-    'sh', '-c',
-    'curl --proto =https --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal -c clippy,rustfmt',
-  ]);
 }

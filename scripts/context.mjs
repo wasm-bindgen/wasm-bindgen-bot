@@ -12,6 +12,8 @@ const ctx = join(dir, 'ctx');
 mkdirSync(ctx, { recursive: true });
 const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
 const name = process.env.GITHUB_EVENT_NAME;
+// The warm cargo cache is rebuilt at least monthly.
+setOutput('cache-epoch', new Date().toISOString().slice(0, 7));
 
 function toDiff(files) {
   let diff = '';
@@ -219,6 +221,7 @@ const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'tri
 if (name === 'push') {
   const { default_branch } = await gh(`/repos/${repo}`);
   if (event.ref !== `refs/heads/${default_branch}`) skip('not the default branch');
+  setOutput('warm', 'true');
   const waiting = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
     p => (p.auto_merge || isBot(p.user.login)) && p.head.repo?.full_name === repo &&
       !p.labels.some(l => l.name === 'bot-rebase')

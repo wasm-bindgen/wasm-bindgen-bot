@@ -18,7 +18,9 @@ prints.
 You can run commands with Bash on a disposable Linux machine with network
 access. Rust is installed through `rustup` (add targets such as
 `wasm32-unknown-unknown` as needed), along with Node.js, and the usual
-GitHub Actions Ubuntu tools and browsers. You have no credentials: do not
+GitHub Actions Ubuntu tools and browsers. Cargo builds into `~/target`
+(`CARGO_TARGET_DIR`), which starts with the default branch's dependencies
+already built, so look for built binaries there rather than in `repo/target`. You have no credentials: do not
 commit, push or open the PR yourself. Edit the files in `repo/`, and every
 change you leave there, including new files, becomes the PR once you finish.
 You also have a `get` tool for read-only access to the GitHub REST API across

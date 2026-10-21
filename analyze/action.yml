@@ -53,15 +53,54 @@ runs:
         BOT_DIR: ${{ github.workspace }}/bot-work
       run: node "$GITHUB_ACTION_PATH/../scripts/context.mjs"
 
+    # Pushes to the default branch cache a build of its dependencies for the
+    # sandbox, once a month and per dependency change. Only these trusted
+    # builds are saved; sandbox runs only restore.
+    - if: steps.ctx.outputs.warm
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ github.sha }}
+        path: bot-work/repo
+        persist-credentials: false
+
+    - if: steps.ctx.outputs.warm
+      id: warm
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/wbg-cargo
+        key: wasm-bindgen-bot-cargo-${{ steps.ctx.outputs.cache-epoch }}-${{ hashFiles('bot-work/repo/**/Cargo.toml', 'bot-work/repo/**/Cargo.lock') }}
+        lookup-only: true
+
+    - if: steps.ctx.outputs.warm && steps.warm.outputs.cache-hit != 'true'
+      id: warm-build
+      continue-on-error: true
+      shell: bash
+      env:
+        BOT_DIR: ${{ github.workspace }}/bot-work
+      run: node "$GITHUB_ACTION_PATH/../scripts/warm.mjs"
+
+    - if: steps.ctx.outputs.warm && steps.warm.outputs.cache-hit != 'true' && steps.warm-build.outcome == 'success'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/wbg-cargo
+        key: wasm-bindgen-bot-cargo-${{ steps.ctx.outputs.cache-epoch }}-${{ hashFiles('bot-work/repo/**/Cargo.toml', 'bot-work/repo/**/Cargo.lock') }}
+
     - if: steps.ctx.outputs.mode
       uses: actions/checkout@v5
       with:
         ref: ${{ steps.ctx.outputs.checkout-ref }}
         path: bot-work/repo
         persist-credentials: false
-        # Fork PR code is only read by the model, never built or executed;
-        # only issue modes run code, against the default branch.
+        # Fork PR code is only read by the model, or run in the sandbox by
+        # modes that execute code.
         allow-unsafe-pr-checkout: true
+
+    - if: contains(fromJSON('["investigate", "pr", "rebase"]'), steps.ctx.outputs.mode)
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/wbg-cargo
+        key: wasm-bindgen-bot-cargo-${{ steps.ctx.outputs.cache-epoch }}-${{ hashFiles('bot-work/repo/**/Cargo.toml', 'bot-work/repo/**/Cargo.lock') }}
+        restore-keys: wasm-bindgen-bot-cargo-
 
     - if: steps.ctx.outputs.mode
       shell: bash
