@@ -102,7 +102,8 @@ else are left out.
   stack, bottom up; a request on a layer above one that is already being
   rebased is skipped. Once the PR below a stack's bottom layer has merged, the
   bottom layer is unstacked: moved onto the default branch, without the
-  merged PR's commits. Pins a PR adds to commits of other repositories in the
+  merged PR's commits, and taken out of its GitHub stack once it is the last
+  open PR there. Pins a PR adds to commits of other repositories in the
   organization, such as git dependencies or submodules, are moved in a commit
   on top when the PR they point into was rebased or merged. The rebased branches come back as a git bundle, and
   are force-pushed in one atomic push only if nobody pushed meanwhile.
@@ -125,7 +126,8 @@ needs a request.
 
 A collaborator's approval of a same-repo PR also enables squash auto-merge,
 unless the PR is a draft or labelled "do not land", so it lands once checks
-pass. Approvals by the bot itself never do. Auto-merge has to be allowed in
+pass. GitHub can't auto-merge stacked PRs, so the last open PR of a stack is
+unstacked first; earlier layers wait. Approvals by the bot itself never do. Auto-merge has to be allowed in
 the repository settings.
 
 All of them weigh the discussion by project role: core team members vote on

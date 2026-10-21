@@ -235,6 +235,8 @@ if (result.mode === 'review') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
     console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
+  } else if (!(await unstackIfLast(number))) {
+    summary(`Not enabling auto-merge on #${number}: GitHub can't auto-merge it while its stack has other open PRs`);
   } else {
     await graphql(
       `mutation($id: ID!) {
@@ -541,6 +543,24 @@ async function updatePr() {
   summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
 }
 
+// GitHub can't auto-merge PRs in a stack. Once a PR is the last open one in
+// its stack, the rest having merged or closed, the stack has done its job and
+// is dissolved. Returns whether the PR is now in no stack.
+async function unstackIfLast(n) {
+  const res = await gh(`/repos/${repo}/stacks?pull_request=${n}`, { raw: true });
+  if (!res.ok) return true;
+  for (const st of await res.json()) {
+    if (st.pull_requests.some(p => p.number !== n && p.state === 'open')) return false;
+    const r = await gh(`/repos/${repo}/stacks/${st.number}/unstack`, { method: 'POST', raw: true });
+    if (!r.ok) {
+      console.log(`Unstacking #${n} from stack ${st.number}: ${r.status} ${await r.text()}`);
+      return false;
+    }
+    console.log(`Unstacked #${n}, the last open PR of stack ${st.number}`);
+  }
+  return true;
+}
+
 // Pushes a stack the analyze job rebased, from its git bundle, after
 // checking each rebased branch sits on the base or the rebased layer below,
 // and only if no layer moved since the request. Layers where the model's
@@ -618,6 +638,7 @@ async function rebase() {
     }
     throw new Error(`push failed: ${err}`);
   }
+  await unstackIfLast(stack.find(l => !l.parent).number);
   if (result.retarget) {
     const bottom = stack.find(l => !l.parent);
     const res = await gh(`/repos/${repo}/pulls/${bottom.number}`, { method: 'PATCH', body: { base: result.retarget }, raw: true });
