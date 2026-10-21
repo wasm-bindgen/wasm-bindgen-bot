@@ -238,13 +238,26 @@ if (result.mode === 'review') {
   } else if (!(await unstackIfLast(number))) {
     summary(`Not enabling auto-merge on #${number}: GitHub can't auto-merge it while its stack has other open PRs`);
   } else {
-    await graphql(
-      `mutation($id: ID!) {
-        enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId }
-      }`,
-      { id: pr.node_id }
-    );
-    summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
+    const res = await gh('/graphql', {
+      method: 'POST',
+      body: {
+        query: `mutation($id: ID!) {
+          enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId }
+        }`,
+        variables: { id: pr.node_id },
+      },
+    });
+    // GitHub only auto-merges PRs that can't merge yet; one whose required
+    // checks have already passed is merged now.
+    const error = res.errors?.[0]?.message ?? '';
+    if (/\b(clean|unstable) status\b/.test(error)) {
+      await gh(`/repos/${repo}/pulls/${number}/merge`, { method: 'PUT', body: { merge_method: 'squash', sha: pr.head.sha } });
+      summary(`Merged #${number} after ${result.approver}'s approval`);
+    } else if (res.errors) {
+      throw new Error(`GraphQL: ${JSON.stringify(res.errors)}`);
+    } else {
+      summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
+    }
   }
 } else if (result.mode === 'triage' && result.headSha) {
   const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
