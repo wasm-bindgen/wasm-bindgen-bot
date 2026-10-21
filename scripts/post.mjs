@@ -108,12 +108,16 @@ if (result.mode === 'review') {
   }
   if (!ready && !blockers.length) blockers.push('No reason given.');
 
-  // With nothing to say, a merge-ready review is just the label.
-  const silent = !output.summary.trim() && !inline.length && !fileLevel.length && !extra.length;
-  const skip = silent && ready;
+  // A merge-ready review leads with a tick. A first one says LGTM when it has
+  // nothing else to say; a re-review only posts comments it has, since the
+  // label already says it is ready.
+  const rereview = !!result.previousSha;
+  const summaryText = ready && rereview ? '' : output.summary.trim();
+  const silent = !summaryText && !inline.length && !fileLevel.length && !extra.length;
+  const skip = silent && ready && rereview;
   const body = clean(
-    output.summary +
-      (ready ? '' : `${output.summary.trim() ? '\n\n' : ''}**Not merge-ready:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
+    (ready ? `✅ ${summaryText || (rereview ? '' : 'LGTM')}`.trim() : summaryText) +
+      (ready ? '' : `${summaryText ? '\n\n' : ''}**Not merge-ready:**\n${blockers.map(b => `- ${b}`).join('\n')}`) +
       (extra.length ? `\n\n${extra.join('\n\n')}` : '')
   );
 

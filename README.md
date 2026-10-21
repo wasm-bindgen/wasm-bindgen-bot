@@ -25,9 +25,10 @@ Each run has two jobs:
 A review is only posted if the PR head hasn't moved since it was analyzed, so
 runs superseded by a newer push never post. The bot never approves or
 requests changes: its reviews are comments, and its verdict is the
-`merge-ready` label, added when it has no concerns, without a comment when it
-has nothing to add, and removed when it lists what it wants changed under "Not
-merge-ready". The label alone never lands anything; with a collaborator's
+`merge-ready` label, added when it has no concerns, and removed when it lists
+what it wants changed under "Not merge-ready". A first merge-ready review
+leads with ✅, or is just "✅ LGTM"; a merge-ready re-review only adds the
+label, plus any inline comments. The label alone never lands anything; with a collaborator's
 approval it enables auto-merge. Set the `post` action's `approve` input to
 `collaborators` or `never` to restrict whose PRs it marks.
 
