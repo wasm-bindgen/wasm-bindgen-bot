@@ -87,10 +87,6 @@ if (result.mode === 'review') {
   const event = 'COMMENT';
   let ready = output.approve;
   const blockers = ready ? [] : [...output.approval_blockers];
-  if (ready && pr.labels.some(l => /do.?not.?land/i.test(l.name))) {
-    ready = false;
-    blockers.push('Labelled "do not land".');
-  }
   if (ready) {
     const policy = process.env.BOT_APPROVE;
     if (!(policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login))))) {
@@ -546,6 +542,8 @@ async function autoMerge(n, approver, approvedSha) {
   const pr = await gh(`/repos/${repo}/pulls/${n}`);
   if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
     console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
+  } else if (pr.labels.some(l => /do.?not.?land/i.test(l.name))) {
+    summary(`Not enabling auto-merge on #${n}: it is labelled do not land`);
   } else if (pr.head.sha !== approvedSha) {
     summary(`Not enabling auto-merge on #${n}: commits were pushed after the approval`);
   } else if (!(await unstackIfLast(n))) {

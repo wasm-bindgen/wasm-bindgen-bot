@@ -25,8 +25,7 @@ Each run has two jobs:
 A review is only posted if the PR head hasn't moved since it was analyzed, so
 runs superseded by a newer push never post. The bot never approves or
 requests changes: its reviews are comments, and its verdict is the
-`merge-ready` label, added when it has no concerns and the PR isn't labelled
-"do not land", and removed when it lists
+`merge-ready` label, added when it has no concerns, and removed when it lists
 what it wants changed under "Not merge-ready". A first merge-ready review
 leads with ✅, or is just "✅ LGTM"; a merge-ready re-review only adds the
 label, plus any inline comments. The label alone never lands anything; with a collaborator's
