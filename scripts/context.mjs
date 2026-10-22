@@ -247,8 +247,7 @@ if (name === 'push') {
     if (approver) automerge.push({ number: p.number, approver, approvedSha: p.head.sha });
   }
   const waiting = open.filter(
-    p => (p.auto_merge || isBot(p.user.login)) && p.head.repo?.full_name === repo &&
-      !p.labels.some(l => l.name === 'bot-rebase')
+    p => (p.auto_merge || isBot(p.user.login)) && p.head.repo && !p.labels.some(l => l.name === 'bot-rebase')
   );
   const conflicting = [];
   for (const p of waiting) {
@@ -384,12 +383,17 @@ const meta = { repo, number, mode, requester, label, ...meta0 };
 // the stack consistent. When a lower layer also has a rebase requested, its
 // run covers this one.
 if (mode === 'rebase') {
-  const open = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
-    p => p.head.repo?.full_name === repo
-  );
-  const byHead = new Map(open.map(p => [p.head.ref, p]));
+  const open = await paginate(`/repos/${repo}/pulls?state=open`, 1000);
+  const local = p => p.head.repo?.full_name === repo;
+  // The list of PRs leaves out whether forks allow edits by maintainers.
+  const canPush = async p => local(p) || !!(await gh(`/repos/${repo}/pulls/${p.number}`)).maintainer_can_modify;
+  // Stacks are built from this repository's branches; a fork PR can sit on
+  // top of one, and is pushed to when its author allows edits by maintainers.
+  const byHead = new Map(open.filter(local).map(p => [p.head.ref, p]));
   let pr = open.find(p => p.number === number);
-  if (!pr) skip('only open PRs from branches in this repository can be rebased');
+  if (!pr) skip('PR is not open');
+  if (!pr.head.repo) skip('the PR\'s fork is gone');
+  if (!(await canPush(pr))) skip('the PR\'s author doesn\'t allow edits by maintainers');
   while (byHead.has(pr.base.ref)) {
     pr = byHead.get(pr.base.ref);
     if (pr.labels.some(l => l.name === 'bot-rebase')) skip(`#${pr.number} below it is being rebased with its stack`);
@@ -418,13 +422,19 @@ if (mode === 'rebase') {
   while (queue.length) {
     const { pr: p, parent } = queue.shift();
     const from = !parent && upstream ? upstream.head.sha : null;
-    stack.push({ number: p.number, headRef: p.head.ref, headSha: p.head.sha, parent, ...(from && { upstream: from }) });
+    stack.push({
+      number: p.number, headRef: p.head.ref, headSha: p.head.sha, headRepo: p.head.repo.full_name, parent,
+      ...(from && { upstream: from }),
+    });
     text +=
       `\n## #${p.number}: ${p.title}\n\nBranch: ${p.head.ref} @ ${p.head.sha}\n` +
       `Rebase onto: ${parent ? `the rebased ${parent}` : baseRef}\n` +
       (from ? `Rebase from: ${from}, the head of #${upstream.number}, which merged; drop its commits\n` : '') +
       `\n${p.body || '(no description)'}\n`;
-    for (const child of open.filter(c => c.base.ref === p.head.ref)) queue.push({ pr: child, parent: p.head.ref });
+    const children = local(p) ? open.filter(c => c.base.ref === p.head.ref) : [];
+    for (const child of children) {
+      if (await canPush(child)) queue.push({ pr: child, parent: p.head.ref });
+    }
   }
   let pinText = '';
   for (const l of stack) {

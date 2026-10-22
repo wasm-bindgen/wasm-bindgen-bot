@@ -626,7 +626,7 @@ async function rebase() {
   must('remote', 'add', 'origin', `https://github.com/${repo}.git`);
   must('fetch', '-q', 'origin',
     `+refs/heads/${result.baseRef}:refs/remotes/origin/${result.baseRef}`,
-    ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`));
+    ...stack.map(l => `+refs/pull/${l.number}/head:refs/remotes/origin/${l.headRef}`));
   for (const l of stack) {
     const now = must('rev-parse', `origin/${l.headRef}`);
     if (now !== l.headSha) {
@@ -652,9 +652,17 @@ async function rebase() {
     summary(`#${number} is already up to date with ${result.baseRef}`);
     return;
   }
-  const push = git('push', '-q', '--atomic',
-    ...changed.map(l => `--force-with-lease=refs/heads/${l.headRef}:${l.headSha}`),
-    'origin', ...changed.map(l => `${rebased.get(l.headRef)}:refs/heads/${l.headRef}`));
+  // This repository's branches move in one atomic push; fork branches, each
+  // in its own repository, follow one by one.
+  const pushTo = (url, layers) => git('push', '-q', '--atomic',
+    ...layers.map(l => `--force-with-lease=refs/heads/${l.headRef}:${l.headSha}`),
+    url, ...layers.map(l => `${rebased.get(l.headRef)}:refs/heads/${l.headRef}`));
+  const local = changed.filter(l => !l.headRepo || l.headRepo === repo);
+  let push = local.length ? pushTo('origin', local) : { status: 0, stderr: '' };
+  for (const l of changed.filter(c => c.headRepo && c.headRepo !== repo)) {
+    if (push.status !== 0) break;
+    push = pushTo(`https://github.com/${l.headRepo}.git`, [l]);
+  }
   await unlabelAll();
   if (push.status !== 0) {
     const err = push.stderr.replaceAll(auth, '***');

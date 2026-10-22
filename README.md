@@ -96,7 +96,8 @@ Investigations and PRs for issues run code, so they only see the issue as it
 was when a collaborator asked for them: later comments and edits by anyone
 else are left out.
 
-- `rebase` (PRs): rebases a same-repo PR onto its base in the sandbox,
+- `rebase` (PRs): rebases a PR onto its base in the sandbox, including fork
+  PRs whose author allows edits by maintainers,
   trying plain git first and handing conflicts to the model, which resolves
   them keeping the intent of both sides, then builds and tests. A PR in a
   stack, whose base is another open PR's branch, is rebased with its whole

@@ -284,7 +284,7 @@ function rebaseWithoutModel() {
   asSandbox(['git', 'clone', '-q', '--filter=blob:none', '--no-checkout', `https://github.com/${meta.repo}.git`, sandboxRepo]);
   asSandbox(['git', '-C', sandboxRepo, 'fetch', '-q', 'origin',
     `+refs/heads/${baseRef}:refs/remotes/origin/${baseRef}`,
-    ...stack.map(l => `+refs/heads/${l.headRef}:refs/remotes/origin/${l.headRef}`)]);
+    ...stack.map(l => `+refs/pull/${l.number}/head:refs/remotes/origin/${l.headRef}`)]);
   // Stale pins are updated by the model, along with the rebase.
   if (stack.some(l => l.pins)) {
     console.log('stale pins; handing the rebase to the model');
