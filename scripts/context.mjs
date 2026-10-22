@@ -251,9 +251,10 @@ if (name === 'pull_request_review') {
   }
   if (!pr.labels.some(l => l.name === 'merge-ready')) skip('approved, but not labelled merge-ready');
   if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  if (review.commit_id !== pr.head.sha) skip('the approval is of an earlier commit');
   writeFileSync(
     join(dir, 'result.json'),
-    JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver: review.user.login })
+    JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver: review.user.login, approvedSha: review.commit_id })
   );
   process.exit(0);
 }
@@ -272,15 +273,19 @@ if (name === 'pull_request_target' && /^(un)?labeled$/.test(event.action) && eve
   if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
   const latest = new Map();
   for (const r of await paginate(`/repos/${repo}/pulls/${pr.number}/reviews`)) {
-    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') latest.set(r.user.login, r.state);
+    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') latest.set(r.user.login, r);
   }
-  if ([...latest.values()].includes('CHANGES_REQUESTED')) skip('changes are requested');
+  if ([...latest.values()].some(r => r.state === 'CHANGES_REQUESTED')) skip('changes are requested');
+  // Only approvals of the current head count; commits since need approving.
   let approver = null;
-  for (const [login, state] of latest) {
-    if (state === 'APPROVED' && !isBot(login) && (await isTrusted(login))) approver = login;
+  for (const [login, r] of latest) {
+    if (r.state === 'APPROVED' && r.commit_id === pr.head.sha && !isBot(login) && (await isTrusted(login))) approver = login;
   }
-  if (!approver) skip('merge-ready, but no collaborator has approved');
-  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver }));
+  if (!approver) skip('merge-ready, but no collaborator has approved the latest commit');
+  writeFileSync(
+    join(dir, 'result.json'),
+    JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver, approvedSha: pr.head.sha })
+  );
   process.exit(0);
 }
 

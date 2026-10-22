@@ -129,6 +129,8 @@ A collaborator's approval together with the `merge-ready` label enables squash
 auto-merge, so the PR lands once checks pass. Approving a labelled PR, or
 labelling an approved one, triggers it; approvals by the bot never count, and
 drafts, PRs with changes requested and PRs labelled "do not land" are skipped.
+The approval has to be of the PR's latest commit: commits pushed after it
+need approving again.
 Removing `merge-ready` turns auto-merge off again, as the bot's own reviews do
 when they find new concerns. A PR whose checks have already passed is merged
 directly. GitHub can't auto-merge stacked PRs, so the last open PR of a stack

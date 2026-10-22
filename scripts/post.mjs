@@ -234,6 +234,8 @@ if (result.mode === 'review') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
     console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
+  } else if (pr.head.sha !== result.approvedSha) {
+    summary(`Not enabling auto-merge on #${number}: commits were pushed after the approval`);
   } else if (!(await unstackIfLast(number))) {
     summary(`Not enabling auto-merge on #${number}: GitHub can't auto-merge it while its stack has other open PRs`);
   } else {
