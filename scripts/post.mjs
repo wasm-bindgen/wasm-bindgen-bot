@@ -87,6 +87,10 @@ if (result.mode === 'review') {
   const event = 'COMMENT';
   let ready = output.approve;
   const blockers = ready ? [] : [...output.approval_blockers];
+  if (ready && pr.labels.some(l => /do.?not.?land/i.test(l.name))) {
+    ready = false;
+    blockers.push('Labelled "do not land".');
+  }
   if (ready) {
     const policy = process.env.BOT_APPROVE;
     if (!(policy === 'all' || (policy === 'collaborators' && (await isTrusted(pr.user.login))))) {
