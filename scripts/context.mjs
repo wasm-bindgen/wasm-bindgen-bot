@@ -452,11 +452,13 @@ if (isPr) {
     if (!res.ok || (await res.json()).status !== 'ahead') skip('rebase by the bot');
   }
   // Third parties' pushes are only re-reviewed on request, but a push that
-  // cancelled the opening review still gets the first one.
-  if (event.action === 'synchronize' && !isBot(pr.user.login) && !(await isTrusted(pr.user.login))) {
+  // cancelled the opening review still gets the first one. Pushes by the bot
+  // or a collaborator are always reviewed, whoever opened the PR.
+  const pusher = event.sender?.login;
+  if (event.action === 'synchronize' && !isBot(pusher) && !(await isTrusted(pusher))) {
     const reviewed = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).some(r => isBot(r.user?.login));
     const labelled = pr.labels.some(l => l.name === 'merge-ready');
-    if (reviewed || labelled) skip(`pushes by ${pr.user.login} are only re-reviewed on request`);
+    if (reviewed || labelled) skip(`pushes by ${pusher} are only re-reviewed on request`);
   }
   meta.headSha = pr.head.sha;
   // Anyone can comment on the bot's own PRs, but only collaborators' and the
