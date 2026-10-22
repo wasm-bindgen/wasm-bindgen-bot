@@ -220,7 +220,14 @@ if (result.mode === 'review') {
   for (const n of result.numbers) {
     await gh(`/repos/${repo}/issues/${n}/labels`, { method: 'POST', body: { labels: ['bot-rebase'] } });
   }
-  summary(`Requested rebases of ${result.numbers.map(n => `#${n}`).join(', ')}`);
+  if (result.numbers.length) summary(`Requested rebases of ${result.numbers.map(n => `#${n}`).join(', ')}`);
+  for (const a of result.automerge ?? []) {
+    try {
+      await autoMerge(a.number, a.approver, a.approvedSha);
+    } catch (e) {
+      console.log(`Auto-merging #${a.number}: ${e.message}`);
+    }
+  }
 } else if (result.mode === 'automerge-off') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state === 'open' && pr.auto_merge) {
@@ -231,35 +238,7 @@ if (result.mode === 'review') {
     summary(`Turned off auto-merge on #${number}, since merge-ready was removed`);
   }
 } else if (result.mode === 'automerge') {
-  const pr = await gh(`/repos/${repo}/pulls/${number}`);
-  if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
-    console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
-  } else if (pr.head.sha !== result.approvedSha) {
-    summary(`Not enabling auto-merge on #${number}: commits were pushed after the approval`);
-  } else if (!(await unstackIfLast(number))) {
-    summary(`Not enabling auto-merge on #${number}: GitHub can't auto-merge it while its stack has other open PRs`);
-  } else {
-    const res = await gh('/graphql', {
-      method: 'POST',
-      body: {
-        query: `mutation($id: ID!) {
-          enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId }
-        }`,
-        variables: { id: pr.node_id },
-      },
-    });
-    // GitHub only auto-merges PRs that can't merge yet; one whose required
-    // checks have already passed is merged now.
-    const error = res.errors?.[0]?.message ?? '';
-    if (/\b(clean|unstable) status\b/.test(error)) {
-      await gh(`/repos/${repo}/pulls/${number}/merge`, { method: 'PUT', body: { merge_method: 'squash', sha: pr.head.sha } });
-      summary(`Merged #${number} after ${result.approver}'s approval`);
-    } else if (res.errors) {
-      throw new Error(`GraphQL: ${JSON.stringify(res.errors)}`);
-    } else {
-      summary(`Enabled auto-merge on #${number} after ${result.approver}'s approval`);
-    }
-  }
+  await autoMerge(number, result.approver, result.approvedSha);
 } else if (result.mode === 'triage' && result.headSha) {
   const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
@@ -555,6 +534,40 @@ async function updatePr() {
   const note = output.comment?.trim();
   if (note) await comment(note);
   summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
+}
+
+// Enables squash auto-merge on an approved PR, or merges it when its checks
+// have already passed.
+async function autoMerge(n, approver, approvedSha) {
+  const pr = await gh(`/repos/${repo}/pulls/${n}`);
+  if (pr.state !== 'open' || pr.draft || pr.auto_merge) {
+    console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
+  } else if (pr.head.sha !== approvedSha) {
+    summary(`Not enabling auto-merge on #${n}: commits were pushed after the approval`);
+  } else if (!(await unstackIfLast(n))) {
+    summary(`Not enabling auto-merge on #${n}: GitHub can't auto-merge it while its stack has other open PRs`);
+  } else {
+    const res = await gh('/graphql', {
+      method: 'POST',
+      body: {
+        query: `mutation($id: ID!) {
+          enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) { clientMutationId }
+        }`,
+        variables: { id: pr.node_id },
+      },
+    });
+    // GitHub only auto-merges PRs that can't merge yet; one whose required
+    // checks have already passed is merged now.
+    const error = res.errors?.[0]?.message ?? '';
+    if (/\b(clean|unstable) status\b/.test(error)) {
+      await gh(`/repos/${repo}/pulls/${n}/merge`, { method: 'PUT', body: { merge_method: 'squash', sha: pr.head.sha } });
+      summary(`Merged #${n} after ${approver}'s approval`);
+    } else if (res.errors) {
+      throw new Error(`GraphQL: ${JSON.stringify(res.errors)}`);
+    } else {
+      summary(`Enabled auto-merge on #${n} after ${approver}'s approval`);
+    }
+  }
 }
 
 // GitHub can't auto-merge PRs in a stack. Once a PR is the last open one in

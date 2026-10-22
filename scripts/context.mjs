@@ -218,11 +218,35 @@ const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'tri
 // After a push to the default branch, auto-merge PRs and the bot's own PRs
 // that it left conflicting get `bot-rebase`. GitHub computes mergeability lazily, so each
 // is polled until it is known.
+// A collaborator whose approval is of the PR's current head, when nobody's
+// latest review requests changes. Commits since an approval need approving.
+async function headApprover(pr) {
+  const latest = new Map();
+  for (const r of await paginate(`/repos/${repo}/pulls/${pr.number}/reviews`)) {
+    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') latest.set(r.user.login, r);
+  }
+  if ([...latest.values()].some(r => r.state === 'CHANGES_REQUESTED')) return null;
+  for (const [login, r] of latest) {
+    if (r.state === 'APPROVED' && r.commit_id === pr.head.sha && !isBot(login) && (await isTrusted(login))) return login;
+  }
+  return null;
+}
+
 if (name === 'push') {
   const { default_branch } = await gh(`/repos/${repo}`);
   if (event.ref !== `refs/heads/${default_branch}`) skip('not the default branch');
   setOutput('warm', 'true');
-  const waiting = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).filter(
+  const open = await paginate(`/repos/${repo}/pulls?state=open`, 1000);
+  // Approvals of fork PRs can't trigger auto-merge themselves, since GitHub
+  // gives their review runs no secrets, so every push catches them up.
+  const automerge = [];
+  for (const p of open) {
+    if (p.auto_merge || p.draft || !p.labels.some(l => l.name === 'merge-ready')) continue;
+    if (p.labels.some(l => /do.?not.?land/i.test(l.name))) continue;
+    const approver = await headApprover(p);
+    if (approver) automerge.push({ number: p.number, approver, approvedSha: p.head.sha });
+  }
+  const waiting = open.filter(
     p => (p.auto_merge || isBot(p.user.login)) && p.head.repo?.full_name === repo &&
       !p.labels.some(l => l.name === 'bot-rebase')
   );
@@ -236,8 +260,8 @@ if (name === 'push') {
     }
     if (pr.mergeable === false) conflicting.push(p.number);
   }
-  if (!conflicting.length) skip('no auto-merge or bot PRs are conflicting');
-  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting }));
+  if (!conflicting.length && !automerge.length) skip('no PRs to rebase or auto-merge');
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting, automerge }));
   process.exit(0);
 }
 
@@ -271,17 +295,8 @@ if (name === 'pull_request_target' && /^(un)?labeled$/.test(event.action) && eve
   const sender = event.sender.login;
   if (!isBot(sender) && !(await isTrusted(sender))) skip(`${sender} is not a collaborator`);
   if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
-  const latest = new Map();
-  for (const r of await paginate(`/repos/${repo}/pulls/${pr.number}/reviews`)) {
-    if (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED' || r.state === 'DISMISSED') latest.set(r.user.login, r);
-  }
-  if ([...latest.values()].some(r => r.state === 'CHANGES_REQUESTED')) skip('changes are requested');
-  // Only approvals of the current head count; commits since need approving.
-  let approver = null;
-  for (const [login, r] of latest) {
-    if (r.state === 'APPROVED' && r.commit_id === pr.head.sha && !isBot(login) && (await isTrusted(login))) approver = login;
-  }
-  if (!approver) skip('merge-ready, but no collaborator has approved the latest commit');
+  const approver = await headApprover(pr);
+  if (!approver) skip('merge-ready, but no collaborator has approved the latest commit, or changes are requested');
   writeFileSync(
     join(dir, 'result.json'),
     JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver, approvedSha: pr.head.sha })
