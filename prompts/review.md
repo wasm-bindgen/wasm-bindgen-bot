@@ -127,7 +127,10 @@ do not repeat them as new comments.
   rather than an approval. True only when no correctness, soundness, compatibility, test or
   documentation concerns remain, including in your open threads, and you are
   confident the PR can merge as it is. Any remaining comments must then be
-  optional suggestions. When in doubt, leave it false.
+  optional suggestions. When in doubt, leave it false. Judge the code, not
+  CI: branch rules already require checks to pass before merging, so pending
+  or failing checks are never a reason to leave it false. When a failing
+  check points at a problem in the code, the problem is the concern.
 - `approval_blockers`: when `approve` is false, the concrete reasons, one short
   sentence each; empty when merge-ready.
 
