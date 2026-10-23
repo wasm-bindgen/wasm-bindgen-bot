@@ -131,9 +131,9 @@ auto-merge, so the PR lands once checks pass. Approving a labelled PR, or
 labelling an approved one, triggers it; approvals by the bot never count, and
 drafts, PRs with changes requested and PRs labelled "do not land" are skipped.
 The approval has to be of the PR's latest commit: commits pushed after it
-need approving again. GitHub gives approval runs on fork PRs no secrets, so each
-push to the default branch also catches up PRs that are merge-ready and
-approved but not yet auto-merging.
+need approving again. GitHub gives approval runs on fork PRs no secrets, so
+approvals run a separate approval workflow, whose completion runs the bot with
+them.
 Removing `merge-ready` turns auto-merge off again, as the bot's own reviews do
 when they find new concerns. A PR whose checks have already passed is merged
 directly. GitHub can't auto-merge stacked PRs, so the last open PR of a stack
@@ -157,11 +157,32 @@ secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
 Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
 and an Actions event policy (Settings → Actions → Policies) scoped to
-`.github/workflows/bot.yml` that allows its events: `pull_request_target`, `workflow_dispatch`, `push`, `issues`, `issue_comment`,
-`pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
+`.github/workflows/bot.yml` and `.github/workflows/bot-approval.yml` that allows their events: `pull_request_target`, `workflow_dispatch`, `push`, `issues`, `issue_comment`,
+`pull_request_review_comment`, `workflow_run` and `pull_request_review`. Without it, GitHub's
 default policy blocks `pull_request_target` in public repositories from
 November 2, 2026, so fork PRs would no longer be reviewed. Then add
-`.github/workflows/bot.yml`:
+`.github/workflows/bot-approval.yml`:
+
+```yaml
+name: wasm-bindgen-bot approval
+
+# GitHub gives review runs on fork PRs no secrets, so an approval only runs
+# this, and its completion runs wasm-bindgen-bot with them.
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  approved:
+    if: github.event.review.state == 'approved' && github.event.review.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    steps:
+      - run: 'true'
+```
+
+and `.github/workflows/bot.yml`:
 
 ```yaml
 name: wasm-bindgen-bot
@@ -177,12 +198,13 @@ on:
   issue_comment:
     types: [created]
   # Only same-repo PRs, since GitHub gives fork PRs' review comment runs no
-  # secrets. Like approvals, these don't run on PRs with merge conflicts.
+  # secrets. These don't run on PRs with merge conflicts.
   pull_request_review_comment:
     types: [created]
-  # Likewise same-repo only: a collaborator's approval enables auto-merge.
-  pull_request_review:
-    types: [submitted]
+  # A collaborator's approval enables auto-merge.
+  workflow_run:
+    workflows: [wasm-bindgen-bot approval]
+    types: [completed]
   # After merges, flags auto-merge PRs they left conflicting for a rebase.
   push:
     branches: [main, master]
@@ -224,17 +246,14 @@ jobs:
           github.event.pull_request.head.repo.full_name == github.repository)) &&
         (contains(github.event.comment.body, '@wasm-bindgen-bot') ||
           contains(github.event.comment.body, '@wbg-bot'))) ||
-      (github.event_name == 'pull_request_review' &&
-        github.event.review.state == 'approved' &&
-        github.event.review.user.type != 'Bot' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
-      # Comment, approval and merge-ready runs get their own group rather than
-      # cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || github.event.label.name == 'merge-ready' && '-merge-ready' || '' }}
+      # Comment and merge-ready runs get their own group rather than cancelling
+      # reviews in progress.
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.label.name == 'merge-ready' && '-merge-ready' || '' }}
       cancel-in-progress: true
     permissions:
       contents: read

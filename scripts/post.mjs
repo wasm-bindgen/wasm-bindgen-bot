@@ -220,14 +220,7 @@ if (result.mode === 'review') {
   for (const n of result.numbers) {
     await gh(`/repos/${repo}/issues/${n}/labels`, { method: 'POST', body: { labels: ['bot-rebase'] } });
   }
-  if (result.numbers.length) summary(`Requested rebases of ${result.numbers.map(n => `#${n}`).join(', ')}`);
-  for (const a of result.automerge ?? []) {
-    try {
-      await autoMerge(a.number, a.approver, a.approvedSha);
-    } catch (e) {
-      console.log(`Auto-merging #${a.number}: ${e.message}`);
-    }
-  }
+  summary(`Requested rebases of ${result.numbers.map(n => `#${n}`).join(', ')}`);
 } else if (result.mode === 'automerge-off') {
   const pr = await gh(`/repos/${repo}/pulls/${number}`);
   if (pr.state === 'open' && pr.auto_merge) {

@@ -237,15 +237,6 @@ if (name === 'push') {
   if (event.ref !== `refs/heads/${default_branch}`) skip('not the default branch');
   setOutput('warm', 'true');
   const open = await paginate(`/repos/${repo}/pulls?state=open`, 1000);
-  // Approvals of fork PRs can't trigger auto-merge themselves, since GitHub
-  // gives their review runs no secrets, so every push catches them up.
-  const automerge = [];
-  for (const p of open) {
-    if (p.auto_merge || p.draft || !p.labels.some(l => l.name === 'merge-ready')) continue;
-    if (p.labels.some(l => /do.?not.?land/i.test(l.name))) continue;
-    const approver = await headApprover(p);
-    if (approver) automerge.push({ number: p.number, approver, approvedSha: p.head.sha });
-  }
   const waiting = open.filter(
     p => (p.auto_merge || isBot(p.user.login)) && p.head.repo && !p.labels.some(l => l.name === 'bot-rebase')
   );
@@ -259,11 +250,32 @@ if (name === 'push') {
     }
     if (pr.mergeable === false) conflicting.push(p.number);
   }
-  if (!conflicting.length && !automerge.length) skip('no PRs to rebase or auto-merge');
-  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting, automerge }));
+  if (!conflicting.length) skip('no PRs to rebase');
+  writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, mode: 'flag-conflicts', numbers: conflicting }));
   process.exit(0);
 }
 
+// GitHub gives review runs on fork PRs no secrets, so approvals run the
+// approval workflow, whose completion runs this with them. Its PR is found by
+// head commit, since workflow_run lists no PRs for forks.
+if (name === 'workflow_run') {
+  const run = event.workflow_run;
+  if (run.event !== 'pull_request_review' || run.conclusion !== 'success') skip('not an approval');
+  const pr = (await paginate(`/repos/${repo}/pulls?state=open`, 1000)).find(p => p.head.sha === run.head_sha);
+  if (!pr) skip('the approved commit is not the head of an open PR');
+  if (pr.auto_merge) skip('auto-merge is already enabled');
+  if (!pr.labels.some(l => l.name === 'merge-ready')) skip('approved, but not labelled merge-ready');
+  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  const approver = await headApprover(pr);
+  if (!approver) skip('no collaborator has approved the latest commit, or changes are requested');
+  writeFileSync(
+    join(dir, 'result.json'),
+    JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver, approvedSha: pr.head.sha })
+  );
+  process.exit(0);
+}
+
+// Callers that still run on approvals directly.
 // A collaborator's approval of a same-repo PR enables auto-merge. It needs no
 // model, so the result goes straight to the post job.
 if (name === 'pull_request_review') {
