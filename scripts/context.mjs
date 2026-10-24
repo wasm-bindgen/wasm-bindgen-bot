@@ -510,6 +510,12 @@ if (isPr) {
     }
     meta.prompt = 'pr-update';
     meta.headRef = pr.head.ref;
+    meta.baseRef = pr.base.ref;
+    // Rebasing a PR that others build on would leave them behind.
+    if (pr.head.repo.full_name === repo) {
+      const stacked = await paginate(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(pr.head.ref)}`);
+      if (stacked.length) writeFileSync(join(ctx, 'stacked.md'), stacked.map(p => `- #${p.number} ${p.title}\n`).join(''));
+    }
     meta.headRepo = pr.head.repo.full_name;
     meta.botPr = botPr;
     const reviews = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).filter(r => r.body);

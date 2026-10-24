@@ -82,8 +82,11 @@ PR, it answers in the thread.
 - `pr` (issues and PRs): on an issue, implements it, or the request in the
   comment, builds and tests it, and opens a PR from a `wbg-bot/issue-<n>`
   branch. On a PR, addresses the open review feedback, or on someone else's
-  PR the change the request asks for, with a new commit, never a force push,
-  and replies in the threads it handled. PRs from forks get the commit when
+  PR the change the request asks for, with a new commit, and replies in the
+  threads it handled. When asked to, or when the work needs it, it rebases
+  the PR instead, regenerating snapshots and fixing what the new base broke,
+  and force pushes it with a lease on the head it started from, unless other
+  PRs build on it; a rebased PR is then reviewed again. PRs from forks get the commit when
   their author allows edits by maintainers. On someone else's PR, the bot
   turns off auto-merge, since an approval predates its commit. Changes to workflows are dropped, since the app can't
   push them.

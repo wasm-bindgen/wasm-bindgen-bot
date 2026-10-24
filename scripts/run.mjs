@@ -145,6 +145,12 @@ if (!executes) {
   createSandbox();
   run('sudo', ['cp', '-a', join(dir, 'ctx'), join(dir, 'repo'), work]);
   run('sudo', ['chown', '-R', `${SANDBOX_USER}:${SANDBOX_USER}`, work]);
+  // The base and full history let the model rebase the PR.
+  if (meta.prompt === 'pr-update') {
+    const fetch = unshallow => trySandbox(['git', '-C', sandboxRepo, 'fetch', '-q', ...(unshallow ? ['--unshallow'] : []),
+      'origin', `+refs/heads/${meta.baseRef}:refs/remotes/origin/${meta.baseRef}`]);
+    if (fetch(true).status !== 0) fetch(false);
+  }
   if (meta.mode === 'rebase' && rebaseWithoutModel()) {
     proc = { stdout: JSON.stringify({ type: 'result', subtype: 'clean', num_turns: 0, total_cost_usd: 0, structured_output: { layers: [], comment: null } }) };
   } else {
@@ -206,7 +212,7 @@ if (out.is_error || !out.structured_output) {
   throw new Error(`no structured output: ${redact(out.result)}`);
 }
 
-const extra = meta.mode === 'pr' ? collectChanges() : meta.mode === 'rebase' ? collectRebase() : {};
+const extra = meta.mode === 'pr' ? collectChanges(out.structured_output) : meta.mode === 'rebase' ? collectRebase() : {};
 const result = JSON.stringify({ ...meta, ...extra, output: out.structured_output });
 if (result.includes(token) || result.includes(ghToken)) throw new Error('output contains a token');
 writeFileSync(join(dir, 'result.json'), result);
@@ -215,9 +221,14 @@ writeFileSync(join(dir, 'result.json'), result);
 // the pristine checkout is trusted by git running as the runner user, since
 // the sandbox's repository config could run commands, and the sandbox's
 // files are read as the sandbox user so symlinks can't reach anything else.
-function collectChanges() {
+function collectChanges(output) {
   const pristine = join(dir, 'repo');
   const baseSha = run('git', ['-C', pristine, 'rev-parse', 'HEAD']).trim();
+  const head = asSandbox(['git', '-C', sandboxRepo, 'rev-parse', 'HEAD']).trim();
+  if (meta.prompt === 'pr-update' && head !== baseSha &&
+      trySandbox(['git', '-C', sandboxRepo, 'merge-base', '--is-ancestor', baseSha, head]).status !== 0) {
+    return { baseSha, files: [], ...collectRebasedPr(output) };
+  }
   const names = asSandbox([
     'sh', '-c', 'cd "$0" && git add -A && git diff --cached --name-only -z --no-renames "$1"',
     sandboxRepo, baseSha,
@@ -308,6 +319,18 @@ function rebaseWithoutModel() {
     }
   }
   return true;
+}
+
+// A rebase rewrote the PR's history, so its commits go as a bundle, with any
+// changes left uncommitted in a commit on top.
+function collectRebasedPr(output) {
+  const git = (...args) => asSandbox(['git', '-C', sandboxRepo, ...args]);
+  git('add', '-A');
+  if (trySandbox(['git', '-C', sandboxRepo, 'diff', '--cached', '--quiet']).status !== 0) {
+    git('commit', '-q', '-m', String(output.commit_message).trim() || 'Address review feedback');
+  }
+  git('branch', '-f', `bot-rebased/${meta.headRef}`, 'HEAD');
+  return collectRebase();
 }
 
 // Bundles the rebased branches, which keeps their commits, authors and

@@ -492,7 +492,10 @@ async function updatePr() {
     return;
   }
   let sha = null;
-  if (result.files?.length) {
+  if (result.bundle) {
+    sha = await pushRebasedPr();
+    if (!sha) return;
+  } else if (result.files?.length) {
     const message = String(output.commit_message).trim() || 'Address review feedback';
     if (result.headRepo && result.headRepo !== repo) {
       sha = await pushToFork(message);
@@ -505,6 +508,8 @@ async function updatePr() {
       });
       sha = commit.sha;
     }
+  }
+  if (sha) {
     // An approval of someone else's PR predates the bot's commit.
     if (!result.botPr && pr.auto_merge) {
       await graphql(
@@ -541,7 +546,58 @@ async function updatePr() {
   }
   const note = output.comment?.trim();
   if (note) await comment(note);
-  summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)} with ${result.files.length} files` : 'no changes'}, replied to ${replied} threads`);
+  // The bot's force pushes aren't reviewed, so a rebase asks for one.
+  if (result.bundle) await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels: ['bot-review'] } });
+  summary(`Updated #${number}: ${sha ? `pushed ${sha.slice(0, 7)}${result.bundle ? ', rebased' : ` with ${result.files.length} files`}` : 'no changes'}, replied to ${replied} threads`);
+}
+
+// Force pushes the PR rebased by the model, as long as it is based on the
+// current base branch and the PR hasn't moved since.
+async function pushRebasedPr() {
+  if (!result.headRepo || result.headRepo === repo) {
+    const stacked = await paginate(`/repos/${repo}/pulls?state=open&base=${encodeURIComponent(result.headRef)}`);
+    if (stacked.length) {
+      await comment(`I rebased this PR, but didn't push it, since ${stacked.map(p => `#${p.number}`).join(', ')} build on it; \`bot-rebase\` rebases the whole stack.`);
+      return null;
+    }
+  }
+  const { dir, auth, git, must } = scratchGit('bot-rebase-pr-');
+  must('init', '-q');
+  must('remote', 'add', 'origin', `https://github.com/${repo}.git`);
+  must('fetch', '-q', 'origin', `+refs/heads/${result.baseRef}:refs/remotes/origin/${result.baseRef}`,
+    `+refs/pull/${number}/head:refs/remotes/origin/pr`);
+  if (must('rev-parse', 'origin/pr') !== result.baseSha) throw new Error('the PR moved while fetching it');
+  writeFileSync(join(dir, 'rebase.bundle'), Buffer.from(result.bundle, 'base64'));
+  must('fetch', '-q', join(dir, 'rebase.bundle'), '+refs/heads/bot-rebased/*:refs/rebased/*');
+  const sha = must('rev-parse', `refs/rebased/${result.headRef}`);
+  if (git('merge-base', '--is-ancestor', `origin/${result.baseRef}`, sha).status !== 0) {
+    throw new Error(`the rebased PR is not based on ${result.baseRef}`);
+  }
+  const url = result.headRepo && result.headRepo !== repo ? `https://github.com/${result.headRepo}.git` : 'origin';
+  const push = git('push', '-q', `--force-with-lease=refs/heads/${result.headRef}:${result.baseSha}`, url, `${sha}:refs/heads/${result.headRef}`);
+  if (push.status !== 0) {
+    const err = push.stderr.replaceAll(auth, '***');
+    if (/workflow/i.test(err)) await comment('I rebased this PR, but I can\'t push commits that change workflows.');
+    throw new Error(`push failed: ${err}`);
+  }
+  return sha;
+}
+
+// A scratch repository whose git authenticates to GitHub as the app.
+function scratchGit(prefix) {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
+  const git = (...args) =>
+    spawnSync('git', ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, ...args], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+  const must = (...args) => {
+    const r = git(...args);
+    if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${r.stderr.replaceAll(auth, '***')}`);
+    return r.stdout.trim();
+  };
+  return { dir, auth, git, must };
 }
 
 // Enables squash auto-merge on an approved PR, or merges it when its checks
@@ -605,18 +661,7 @@ async function unstackIfLast(n) {
 // predates those, and get a review.
 async function rebase() {
   const { stack } = result;
-  const dir = mkdtempSync(join(tmpdir(), 'bot-rebase-'));
-  const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
-  const git = (...args) =>
-    spawnSync('git', ['-c', `http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}`, ...args], {
-      cwd: dir,
-      encoding: 'utf8',
-    });
-  const must = (...args) => {
-    const r = git(...args);
-    if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${r.stderr.replaceAll(auth, '***')}`);
-    return r.stdout.trim();
-  };
+  const { dir, auth, git, must } = scratchGit('bot-rebase-');
   const unlabelAll = async () => {
     for (const layer of stack) {
       const res = await gh(`/repos/${repo}/issues/${layer.number}/labels/bot-rebase`, { method: 'DELETE', raw: true });
