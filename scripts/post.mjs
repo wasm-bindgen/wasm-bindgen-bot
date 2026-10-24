@@ -18,6 +18,14 @@ if (result.skip) {
 }
 if (result.repo !== repo) throw new Error(`result is for ${result.repo}`);
 const { number, output } = result;
+// Removing a command's label while it runs drops its result.
+if (result.label) {
+  const { labels } = await gh(`/repos/${repo}/issues/${number}`);
+  if (!labels.some(l => l.name === result.label)) {
+    summary(`Dropped the ${result.mode} result for #${number}, since ${result.label} was removed`);
+    process.exit(0);
+  }
+}
 
 // Mentions in model output would ping arbitrary users. Code spans and blocks
 // don't ping, so they are left intact.

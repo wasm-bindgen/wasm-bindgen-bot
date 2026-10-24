@@ -50,7 +50,8 @@ what guards the app's write access.
 
 Collaborators run each command by commenting `@wbg-bot <command>` (or
 `@wasm-bindgen-bot <command>`) or by adding the `bot-<command>` label, which
-the bot removes afterwards. The mention can be anywhere in a comment, outside
+the bot removes afterwards. Removing the label before the command finishes
+cancels it, or for `bot-review` drops its result. The mention can be anywhere in a comment, outside
 code and quoted lines, and the rest of the comment after it is the command.
 Text after a comment command is passed to the model as a request, for example `@wbg-bot review focus on the unsafe blocks`.
 Any other comment to the bot, such as `@wbg-bot what happens here if the
@@ -212,6 +213,8 @@ jobs:
     if: >-
       (github.event_name == 'pull_request_target' && (
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
+        (github.event.action == 'unlabeled' && startsWith(github.event.label.name, 'bot-') &&
+          github.event.label.name != 'bot-review' && github.event.sender.type != 'Bot') ||
         (github.event.label.name == 'merge-ready' &&
           (github.event.action == 'labeled' || github.event.action == 'unlabeled')) ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
@@ -220,7 +223,9 @@ jobs:
             github.event.pull_request.user.login == 'wasm-bindgen-bot[bot]')))) ||
       (github.event_name == 'issues' && (
         (github.event.action == 'opened' && github.event.issue.user.type != 'Bot') ||
-        (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')))) ||
+        (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
+        (github.event.action == 'unlabeled' && startsWith(github.event.label.name, 'bot-') &&
+          github.event.label.name != 'bot-review' && github.event.sender.type != 'Bot'))) ||
       ((github.event_name == 'issue_comment' ||
         (github.event_name == 'pull_request_review_comment' &&
           github.event.pull_request.head.repo.full_name == github.repository)) &&
@@ -234,9 +239,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 100
     concurrency:
-      # Comment, approval and merge-ready runs get their own group rather than
-      # cancelling reviews in progress.
-      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || github.event.label.name == 'merge-ready' && '-merge-ready' || '' }}
+      # Comment, approval and label runs get their own group rather than
+      # cancelling reviews in progress, so removing a command's label cancels
+      # only its own run. bot-review is a review, so it shares their group, and
+      # removing it only drops its result.
+      group: wasm-bindgen-bot-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}${{ github.event.comment && format('-{0}', github.event.comment.id) || github.event.review && format('-review-{0}', github.event.review.id) || github.event.label && github.event.label.name != 'bot-review' && format('-{0}', github.event.label.name) || '' }}
       cancel-in-progress: true
     permissions:
       contents: read

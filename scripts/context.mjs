@@ -320,6 +320,9 @@ if (name === 'pull_request' || name === 'pull_request_target' || name === 'issue
     if (mode === 'ask') mode = null;
     if (!Object.hasOwn(VERBS, mode)) skip(`label ${label} is not a bot command`);
     if (mode === 'issue') skip('issue needs a request, in a comment');
+    // A run can start well after its label was added, and removed again.
+    const { labels } = await gh(`/repos/${repo}/issues/${number}`);
+    if (!labels.some(l => l.name === label)) skip(`label ${label} was removed`);
     requester = event.sender.login;
   } else {
     mode = isPr ? 'review' : 'triage';
