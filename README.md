@@ -28,7 +28,9 @@ requests changes: its reviews are comments, and its verdict is the
 `merge-ready` label, added when it has no concerns, and removed when it lists
 what it wants changed under "Not merge-ready". A first merge-ready review
 leads with ✅, or is just "✅ LGTM"; a merge-ready re-review only adds the
-label, plus any inline comments. The label alone never lands anything; with a collaborator's
+label, plus any inline comments. The `start` job removes the label when a
+review starts, so it only ever marks a reviewed head, and its removal turns
+auto-merge off until the new head is approved. The label alone never lands anything; with a collaborator's
 approval it enables auto-merge. Set the `post` action's `approve` input to
 `collaborators` or `never` to restrict whose PRs it marks.
 
@@ -246,6 +248,26 @@ jobs:
           cf-aig-token: ${{ secrets.CF_AIG_TOKEN }}
           cf-account-id: ${{ vars.CF_ACCOUNT_ID }}
           cf-gateway-id: ${{ vars.CF_GATEWAY_ID }}
+
+  # Removes merge-ready while a review runs.
+  start:
+    if: >-
+      github.event_name == 'pull_request_target' && !github.event.pull_request.draft &&
+      (github.event.action == 'opened' || github.event.action == 'ready_for_review' ||
+        github.event.action == 'synchronize' ||
+        (github.event.action == 'labeled' && github.event.label.name == 'bot-review')) &&
+      (github.event.pull_request.user.type != 'Bot' ||
+        github.event.pull_request.user.login == 'wasm-bindgen-bot[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: wasm-bindgen/wasm-bindgen-bot/start@main
+        with:
+          app-id: ${{ vars.WASM_BINDGEN_BOT_APP_ID }}
+          private-key: ${{ secrets.WASM_BINDGEN_BOT_PRIVATE_KEY }}
 
   post:
     needs: analyze

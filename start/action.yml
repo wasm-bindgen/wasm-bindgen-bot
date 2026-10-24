@@ -1,0 +1,38 @@
+name: wasm-bindgen-bot start
+description: >-
+  Removes the merge-ready label from a PR as its review starts, so the label
+  only ever marks a reviewed head. Runs alongside analyze, making the same
+  decision on whether the event is reviewed.
+
+inputs:
+  app-id:
+    required: true
+  private-key:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: ctx
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        BOT_DIR: ${{ runner.temp }}/wasm-bindgen-bot-start
+      run: node "$GITHUB_ACTION_PATH/../scripts/context.mjs"
+
+    - id: token
+      if: steps.ctx.outputs.mode == 'review'
+      uses: actions/create-github-app-token@v2
+      with:
+        app-id: ${{ inputs.app-id }}
+        private-key: ${{ inputs.private-key }}
+        owner: ${{ github.repository_owner }}
+        repositories: ${{ github.event.repository.name }}
+        permission-issues: write
+        permission-pull-requests: write
+
+    - if: steps.ctx.outputs.mode == 'review'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.token.outputs.token }}
+      run: node "$GITHUB_ACTION_PATH/../scripts/start.mjs"
