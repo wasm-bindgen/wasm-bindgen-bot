@@ -85,8 +85,7 @@ PR, it answers in the thread.
   PR the change the request asks for, with a new commit, and replies in the
   threads it handled. When asked to, or when the work needs it, it rebases
   the PR instead, regenerating snapshots and fixing what the new base broke,
-  and force pushes it with a lease on the head it started from, unless other
-  PRs build on it; a rebased PR is then reviewed again. PRs from forks get the commit when
+  and pushes it like `rebase` does; a rebased PR is then reviewed again. PRs from forks get the commit when
   their author allows edits by maintainers. On someone else's PR, the bot
   turns off auto-merge, since an approval predates its commit. Changes to workflows are dropped, since the app can't
   push them.

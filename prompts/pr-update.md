@@ -11,7 +11,6 @@ Your working directory contains:
   have an id
 - `ctx/reviews.md`: review summaries, if any
 - `ctx/conversation.md`: the PR's general discussion, if any
-- `ctx/stacked.md`, if present: open PRs based on this PR's branch
 - `repo/`: a clone of the repository at the PR's head, with full history and
   its base branch fetched as `origin/<base>`
 
@@ -63,9 +62,9 @@ bless command rather than merging them by hand, and fix what the new base
 breaks, including lints, amending the commit that needs each fix or adding
 commits on top. Git is configured to commit as the bot. The rebased history
 replaces the PR's branch, with anything you leave uncommitted as one more
-commit on top. Don't rebase when `ctx/stacked.md` lists PRs, since they would
-be left behind; say in `comment` that the stack needs `bot-rebase` instead.
-Otherwise never rewrite the PR's history.
+commit on top. Don't rebase a PR that other open PRs are based on, since they
+would be left behind; say in `comment` that the stack needs `bot-rebase`
+instead. Otherwise never rewrite the PR's history.
 
 ## Output
 
