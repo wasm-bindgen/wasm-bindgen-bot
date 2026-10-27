@@ -139,6 +139,7 @@ The approval has to be of the PR's latest commit: commits pushed after it
 need approving again. GitHub gives approval runs on fork PRs no secrets, so each
 push to the default branch also catches up PRs that are merge-ready and
 approved but not yet auto-merging.
+Removing "do not land" from an approved, merge-ready PR enables it too.
 Removing `merge-ready` turns auto-merge off again, as the bot's own reviews do
 when they find new concerns. A PR whose checks have already passed is merged
 directly. GitHub can't auto-merge stacked PRs, so the last open PR of a stack
@@ -219,6 +220,7 @@ jobs:
           github.event.label.name != 'bot-review' && github.event.sender.type != 'Bot') ||
         (github.event.label.name == 'merge-ready' &&
           (github.event.action == 'labeled' || github.event.action == 'unlabeled')) ||
+        (github.event.label.name == 'do not land' && github.event.action == 'unlabeled') ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
           !github.event.pull_request.draft &&
           (github.event.pull_request.user.type != 'Bot' ||

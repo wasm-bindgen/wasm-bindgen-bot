@@ -284,10 +284,12 @@ if (name === 'pull_request_review') {
 
 // A collaborator's approval and the `merge-ready` label together enable
 // auto-merge, so adding the label checks for an approval, and removing it
-// turns auto-merge off again.
-if (name === 'pull_request_target' && /^(un)?labeled$/.test(event.action) && event.label.name === 'merge-ready') {
+// turns auto-merge off again. Removing "do not land" checks the same way.
+const unblocked = event.action === 'unlabeled' && /do.?not.?land/i.test(event.label?.name ?? '');
+if (name === 'pull_request_target' && (unblocked || (/^(un)?labeled$/.test(event.action) && event.label.name === 'merge-ready'))) {
   const pr = event.pull_request;
-  if (event.action === 'unlabeled') {
+  if (unblocked && !pr.labels.some(l => l.name === 'merge-ready')) skip('do not land removed, but not labelled merge-ready');
+  if (event.action === 'unlabeled' && !unblocked) {
     writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, number: pr.number, mode: 'automerge-off' }));
     process.exit(0);
   }
