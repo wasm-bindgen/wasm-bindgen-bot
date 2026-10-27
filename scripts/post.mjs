@@ -135,10 +135,12 @@ if (result.mode === 'review') {
       ? { ok: true, status: 204 }
       : await gh(`/repos/${repo}/pulls/${number}/reviews`, { method: 'POST', body: review, raw: true });
   // GitHub rejects some inline comments with a 422, and others with repeated
-  // 5xx errors that leave no review behind.
-  const failed = res.status === 422 || (res.status >= 500 && !(await paginate(`/repos/${repo}/pulls/${number}/reviews`))
-    .some(r => isBot(r.user?.login) && r.commit_id === result.headSha && r.body === body));
-  if (failed && inline.length) {
+  // 5xx errors, which may still have created the review.
+  const posted = res.status >= 500 && (await paginate(`/repos/${repo}/pulls/${number}/reviews`))
+    .some(r => isBot(r.user?.login) && r.commit_id === result.headSha && r.body === body);
+  if (posted) {
+    console.log(`Posting the review failed with ${res.status}, but it was created`);
+  } else if ((res.status === 422 || res.status >= 500) && inline.length) {
     console.log(`Inline comments rejected (${res.status} ${await res.text()}), posting them per file`);
     await gh(`/repos/${repo}/pulls/${number}/reviews`, {
       method: 'POST',
