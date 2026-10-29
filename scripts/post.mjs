@@ -714,6 +714,10 @@ async function rebase(note = output.comment?.trim()) {
     if (!l) continue;
     for (const c of layer.conflicts ?? []) console.log(`#${l.number} ${c.path}: ${c.resolution}`);
     if (layer.tests) console.log(`#${l.number} tested: ${layer.tests}`);
+    if (layer.description?.trim()) {
+      await gh(`/repos/${repo}/pulls/${l.number}`, { method: 'PATCH', body: { body: clean(layer.description.trim()) } });
+      console.log(`#${l.number}: updated the description`);
+    }
     const decisions = (layer.decisions ?? []).filter(d => d.trim());
     if (!decisions.length) continue;
     const pr = await gh(`/repos/${repo}/pulls/${l.number}`);

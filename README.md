@@ -119,6 +119,8 @@ else are left out.
   the bot comments with those decisions, turns off auto-merge, since the
   approval predates them, and reviews the PR. The bot's rebases don't
   otherwise trigger re-reviews; its other pushes are reviewed like anyone's.
+  When the model handles the rebase, it corrects a PR's description only
+  where the rebase made it wrong, such as naming a lower PR that has merged.
 - `issue` (issues and PRs, with a request): opens a new issue for a follow-on
   the request describes, written from the discussion and the code, and
   replies with its link, or points to an existing issue that covers it.

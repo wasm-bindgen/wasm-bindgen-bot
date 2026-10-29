@@ -6,36 +6,71 @@
       "items": {
         "type": "object",
         "properties": {
-          "number": { "type": "integer", "description": "PR number of the layer" },
+          "number": {
+            "type": "integer",
+            "description": "PR number of the layer"
+          },
           "conflicts": {
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "path": { "type": "string" },
-                "resolution": { "type": "string", "description": "How you resolved it, in a sentence or two" }
+                "path": {
+                  "type": "string"
+                },
+                "resolution": {
+                  "type": "string",
+                  "description": "How you resolved it, in a sentence or two"
+                }
               },
-              "required": ["path", "resolution"],
+              "required": [
+                "path",
+                "resolution"
+              ],
               "additionalProperties": false
             }
           },
-          "tests": { "type": "string", "description": "What you built and tested for this layer, and the result, in a sentence" },
+          "tests": {
+            "type": "string",
+            "description": "What you built and tested for this layer, and the result, in a sentence"
+          },
           "decisions": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Judgment calls a reviewer should check, each in a sentence; empty when the resolution only combined both sides"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The layer's full new PR description, only when the rebase made the current one wrong; otherwise null"
           }
         },
-        "required": ["number", "conflicts", "tests", "decisions"],
+        "required": [
+          "number",
+          "conflicts",
+          "tests",
+          "decisions",
+          "description"
+        ],
         "additionalProperties": false
       },
       "description": "Each layer you rebased"
     },
     "comment": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Anything you could not rebase or resolve, and why, or null"
     }
   },
-  "required": ["layers", "comment"],
+  "required": [
+    "layers",
+    "comment"
+  ],
   "additionalProperties": false
 }

@@ -73,5 +73,11 @@ that rebased cleanly need no testing beyond what the layers above require.
   changed API. Keeping both sides' changes, renaming to match, or reordering
   is not a decision. Leave it empty when there were none; the rebase then
   goes through without a comment or a review.
+- `description` on each layer: null, unless the rebase made the PR's
+  description wrong, such as when it names a lower PR that has merged, or
+  describes code the resolution had to change. Then give the full
+  description with only those parts corrected, keeping everything else
+  word for word. Style, wording and omissions you'd write differently are
+  not reasons to change it.
 - `comment`: null when every layer is rebased. Otherwise, what you could not
   rebase and why.
