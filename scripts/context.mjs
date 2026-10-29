@@ -220,6 +220,17 @@ const LEGACY_LABELS = { 'bot-request-review': 'review', 'bot-issue-triage': 'tri
 // is polled until it is known.
 // A collaborator whose approval is of the PR's current head, when nobody's
 // latest review requests changes. Commits since an approval need approving.
+// Besides an approval of its head, auto-merge needs `merge-ready` and the
+// author's sign-off as `author-ready`, which the bot's own PRs don't, since
+// their merge-ready is the author's.
+function landBlocker(pr) {
+  const has = name => pr.labels.some(l => l.name === name);
+  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) return 'PR is not ready to land';
+  if (!has('merge-ready')) return 'not labelled merge-ready';
+  if (!isBot(pr.user.login) && !has('author-ready')) return 'not labelled author-ready';
+  return null;
+}
+
 async function headApprover(pr) {
   const latest = new Map();
   for (const r of await paginate(`/repos/${repo}/pulls/${pr.number}/reviews`)) {
@@ -241,8 +252,7 @@ if (name === 'push') {
   // gives their review runs no secrets, so every push catches them up.
   const automerge = [];
   for (const p of open) {
-    if (p.auto_merge || p.draft || !p.labels.some(l => l.name === 'merge-ready')) continue;
-    if (p.labels.some(l => /do.?not.?land/i.test(l.name))) continue;
+    if (p.auto_merge || landBlocker(p)) continue;
     const approver = await headApprover(p);
     if (approver) automerge.push({ number: p.number, approver, approvedSha: p.head.sha });
   }
@@ -272,8 +282,7 @@ if (name === 'pull_request_review') {
   if (isBot(review.user.login) || !(await isTrusted(review.user.login))) {
     skip(`${review.user.login} is not a collaborator`);
   }
-  if (!pr.labels.some(l => l.name === 'merge-ready')) skip('approved, but not labelled merge-ready');
-  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  if (landBlocker(pr)) skip(`approved, but ${landBlocker(pr)}`);
   if (review.commit_id !== pr.head.sha) skip('the approval is of an earlier commit');
   writeFileSync(
     join(dir, 'result.json'),
@@ -282,22 +291,22 @@ if (name === 'pull_request_review') {
   process.exit(0);
 }
 
-// A collaborator's approval and the `merge-ready` label together enable
-// auto-merge, so adding the label checks for an approval, and removing it
-// turns auto-merge off again. Removing "do not land" checks the same way.
+// Adding `merge-ready` or `author-ready` checks for an approval to enable
+// auto-merge, and removing either turns it off again. Removing "do not land"
+// checks the same way.
 const unblocked = event.action === 'unlabeled' && /do.?not.?land/i.test(event.label?.name ?? '');
-if (name === 'pull_request_target' && (unblocked || (/^(un)?labeled$/.test(event.action) && event.label.name === 'merge-ready'))) {
+const landLabel = ['merge-ready', 'author-ready'].includes(event.label?.name);
+if (name === 'pull_request_target' && (unblocked || (/^(un)?labeled$/.test(event.action) && landLabel))) {
   const pr = event.pull_request;
-  if (unblocked && !pr.labels.some(l => l.name === 'merge-ready')) skip('do not land removed, but not labelled merge-ready');
   if (event.action === 'unlabeled' && !unblocked) {
     writeFileSync(join(dir, 'result.json'), JSON.stringify({ repo, number: pr.number, mode: 'automerge-off' }));
     process.exit(0);
   }
   const sender = event.sender.login;
   if (!isBot(sender) && !(await isTrusted(sender))) skip(`${sender} is not a collaborator`);
-  if (pr.draft || pr.labels.some(l => /do.?not.?land/i.test(l.name))) skip('PR is not ready to land');
+  if (landBlocker(pr)) skip(landBlocker(pr));
   const approver = await headApprover(pr);
-  if (!approver) skip('merge-ready, but no collaborator has approved the latest commit, or changes are requested');
+  if (!approver) skip('ready, but no collaborator has approved the latest commit, or changes are requested');
   writeFileSync(
     join(dir, 'result.json'),
     JSON.stringify({ repo, number: pr.number, mode: 'automerge', approver, approvedSha: pr.head.sha })

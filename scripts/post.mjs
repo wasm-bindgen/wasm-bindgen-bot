@@ -249,12 +249,12 @@ if (result.mode === 'review') {
       `mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId } }`,
       { id: pr.node_id }
     );
-    summary(`Turned off auto-merge on #${number}, since merge-ready was removed`);
+    summary(`Turned off auto-merge on #${number}, since a label it needs was removed`);
   }
 } else if (result.mode === 'automerge') {
   await autoMerge(number, result.approver, result.approvedSha);
 } else if (result.mode === 'triage' && result.headSha) {
-  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
+  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l === 'author-ready' || l.startsWith('bot-');
   const existing = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
   const labels = (output.labels ?? []).filter(l => existing.has(l) && !controlled(l)).slice(0, 6);
   if (labels.length) await gh(`/repos/${repo}/issues/${number}/labels`, { method: 'POST', body: { labels } });
@@ -279,7 +279,7 @@ if (result.mode === 'review') {
     reply = `#${existing} already covers this.`;
   } else {
     const have = new Set((await paginate(`/repos/${repo}/labels`)).map(l => l.name));
-    const labels = (output.labels ?? []).filter(l => have.has(l) && l !== 'ready-for-pr' && l !== 'merge-ready' && !l.startsWith('bot-'));
+    const labels = (output.labels ?? []).filter(l => have.has(l) && l !== 'ready-for-pr' && l !== 'merge-ready' && l !== 'author-ready' && !l.startsWith('bot-'));
     const issue = await gh(`/repos/${repo}/issues`, {
       method: 'POST',
       body: {
@@ -323,7 +323,7 @@ if (result.mode === 'review') {
   summary(`Answered a question on #${number}`);
 } else {
   // Labels the bot controls itself are only set from their dedicated fields.
-  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l.startsWith('bot-');
+  const controlled = l => l === 'ready-for-pr' || l === 'merge-ready' || l === 'author-ready' || l.startsWith('bot-');
   const dup = Number.isInteger(output.duplicate_of) && output.duplicate_of !== number ? output.duplicate_of : null;
   const close = output.close === 'duplicate' && !dup ? null : output.close;
   // Only triage marks issues ready; an investigation starts the PR itself.
@@ -583,6 +583,8 @@ async function autoMerge(n, approver, approvedSha) {
     console.log(`Not enabling auto-merge: PR is ${pr.draft ? 'a draft' : pr.state}${pr.auto_merge ? ', already enabled' : ''}`);
   } else if (pr.labels.some(l => /do.?not.?land/i.test(l.name))) {
     summary(`Not enabling auto-merge on #${n}: it is labelled do not land`);
+  } else if (!isBot(pr.user.login) && !pr.labels.some(l => l.name === 'author-ready')) {
+    summary(`Not enabling auto-merge on #${n}: it isn't labelled author-ready`);
   } else if (pr.head.sha !== approvedSha) {
     summary(`Not enabling auto-merge on #${n}: commits were pushed after the approval`);
   } else if (!(await unstackIfLast(n))) {

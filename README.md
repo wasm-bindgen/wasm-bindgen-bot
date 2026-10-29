@@ -133,16 +133,18 @@ bot's workflow, choosing the command, the issue or PR number and a request.
 Without a number, `pr` opens a PR from the request alone. `issue` always
 needs a request.
 
-A collaborator's approval together with the `merge-ready` label enables squash
-auto-merge, so the PR lands once checks pass. Approving a labelled PR, or
-labelling an approved one, triggers it; approvals by the bot never count, and
+A collaborator's approval together with the `merge-ready` label and the
+`author-ready` label, the author's sign-off that the PR can land, enables
+squash auto-merge, so the PR lands once checks pass. The bot's own PRs don't
+need `author-ready`. Approving a labelled PR, or adding either label to an
+approved one, triggers it; approvals by the bot never count, and
 drafts, PRs with changes requested and PRs labelled "do not land" are skipped.
 The approval has to be of the PR's latest commit: commits pushed after it
 need approving again. GitHub gives approval runs on fork PRs no secrets, so each
 push to the default branch also catches up PRs that are merge-ready and
 approved but not yet auto-merging.
 Removing "do not land" from an approved, merge-ready PR enables it too.
-Removing `merge-ready` turns auto-merge off again, as the bot's own reviews do
+Removing `merge-ready` or `author-ready` turns auto-merge off again, as the bot's own reviews do
 when they find new concerns. A PR whose checks have already passed is merged
 directly. GitHub can't auto-merge stacked PRs, so the last open PR of a stack
 is unstacked first; earlier layers wait. Auto-merge has to be allowed in the
@@ -163,7 +165,7 @@ only ever holds builds of merged code. A repository can replace the default
 The organization provides `CF_AIG_TOKEN` and `WASM_BINDGEN_BOT_PRIVATE_KEY`
 secrets and `CF_ACCOUNT_ID`, `CF_GATEWAY_ID` and `WASM_BINDGEN_BOT_APP_ID`
 variables to each enabled repository, and the app must be installed on it.
-Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr` and `merge-ready` labels,
+Create `bot-review`, `bot-triage`, `bot-investigate`, `bot-pr`, `bot-rebase`, `ready-for-pr`, `merge-ready`, `author-ready` and `do not land` labels,
 and an Actions event policy (Settings → Actions → Policies) scoped to
 `.github/workflows/bot.yml` that allows its events: `pull_request_target`, `workflow_dispatch`, `push`, `issues`, `issue_comment`,
 `pull_request_review_comment` and `pull_request_review`. Without it, GitHub's
@@ -220,7 +222,7 @@ jobs:
         (github.event.action == 'labeled' && startsWith(github.event.label.name, 'bot-')) ||
         (github.event.action == 'unlabeled' && startsWith(github.event.label.name, 'bot-') &&
           github.event.label.name != 'bot-review' && github.event.sender.type != 'Bot') ||
-        (github.event.label.name == 'merge-ready' &&
+        ((github.event.label.name == 'merge-ready' || github.event.label.name == 'author-ready') &&
           (github.event.action == 'labeled' || github.event.action == 'unlabeled')) ||
         (github.event.label.name == 'do not land' && github.event.action == 'unlabeled') ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
