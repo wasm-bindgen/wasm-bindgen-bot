@@ -10,22 +10,42 @@
       "items": {
         "type": "object",
         "properties": {
-          "thread_id": { "type": "string" },
+          "thread_id": {
+            "type": "string"
+          },
           "reply": {
             "type": "string",
             "description": "What you changed for this thread, or why you did not"
           }
         },
-        "required": ["thread_id", "reply"],
+        "required": [
+          "thread_id",
+          "reply"
+        ],
         "additionalProperties": false
       },
       "description": "Review threads you acted on"
     },
     "comment": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "description": "Comment for the PR about feedback outside review threads, or null"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The PR's full new description, only when your changes made the current one wrong; otherwise null"
     }
   },
-  "required": ["commit_message", "addressed", "comment"],
+  "required": [
+    "commit_message",
+    "addressed",
+    "comment",
+    "description"
+  ],
   "additionalProperties": false
 }

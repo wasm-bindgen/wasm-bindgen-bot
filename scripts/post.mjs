@@ -516,6 +516,9 @@ async function updatePr() {
       sha = commit.sha;
     }
   }
+  if (sha && output.description?.trim()) {
+    await gh(`/repos/${repo}/pulls/${number}`, { method: 'PATCH', body: { body: clean(output.description.trim()) } });
+  }
   if (sha) {
     // An approval of someone else's PR predates the bot's commit.
     if (!result.botPr && pr.auto_merge) {

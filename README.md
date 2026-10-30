@@ -83,7 +83,8 @@ PR, it answers in the thread.
   comment, builds and tests it, and opens a PR from a `wbg-bot/issue-<n>`
   branch. On a PR, addresses the open review feedback, or on someone else's
   PR the change the request asks for, with a new commit, and replies in the
-  threads it handled. When asked to, or when the work needs it, it rebases
+  threads it handled, correcting the PR's description only where its changes
+  made it wrong. When asked to, or when the work needs it, it rebases
   the PR instead, regenerating snapshots and fixing what the new base broke,
   and pushes it like `rebase` does; a rebased PR is then reviewed again. PRs from forks get the commit when
   their author allows edits by maintainers. On someone else's PR, the bot

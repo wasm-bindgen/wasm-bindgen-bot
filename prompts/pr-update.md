@@ -72,6 +72,11 @@ instead. Otherwise never rewrite the PR's history.
   brief description if useful.
 - `addressed`: for each open thread you acted on, its id and a one or two
   sentence reply saying what changed, or why you did not change it.
+- `description`: null, unless your changes made the PR's description wrong,
+  such as when it no longer describes what the code does, or lists changes
+  the PR has gained or lost. Then give the full description with only those
+  parts corrected, keeping everything else word for word. Style, wording and
+  omissions you'd write differently are not reasons to change it.
 - `comment`: null unless there is something to say outside the threads, such
   as how you handled review summary points, a point you could not address,
   or a question that needs a decision. Keep it short.
