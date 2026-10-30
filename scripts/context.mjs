@@ -522,6 +522,11 @@ if (isPr) {
     meta.prompt = 'pr-update';
     meta.headRef = pr.head.ref;
     meta.baseRef = pr.base.ref;
+    const behind = await gh(`/repos/${repo}/compare/${pr.head.sha}...${encodeURIComponent(pr.base.ref)}`);
+    if (behind.ahead_by) {
+      writeFileSync(join(ctx, 'behind.md'), behind.commits.map(c => `- ${c.sha.slice(0, 9)} ${c.commit.message.split('\n')[0]}\n`).join('') +
+        (behind.ahead_by > behind.commits.length ? `- and ${behind.ahead_by - behind.commits.length} more\n` : ''));
+    }
     meta.headRepo = pr.head.repo.full_name;
     meta.botPr = botPr;
     const reviews = (await paginate(`/repos/${repo}/pulls/${number}/reviews`)).filter(r => r.body);

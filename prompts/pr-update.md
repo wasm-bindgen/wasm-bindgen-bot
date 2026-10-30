@@ -11,6 +11,8 @@ Your working directory contains:
   have an id
 - `ctx/reviews.md`: review summaries, if any
 - `ctx/conversation.md`: the PR's general discussion, if any
+- `ctx/behind.md`, if present: commits on the base branch the PR doesn't
+  have yet
 - `repo/`: a clone of the repository at the PR's head, with full history and
   its base branch fetched as `origin/<base>`
 
@@ -53,8 +55,10 @@ under `.github/workflows/` cannot be pushed and are dropped.
 
 ## Rebasing
 
-When the request asks for a rebase, or the work needs the PR's history
-rewritten, such as when it conflicts with its base, rebase it instead:
+A PR is always brought up to date with its base: when `ctx/behind.md` is
+present, rebase it first, before any other work, even with no feedback to
+address. Then account for the new commits where the PR depends on them, such
+as a changelog or release PR that has to list them. Rebase with
 `git rebase origin/<base>` in `repo/`, keeping each commit's message and
 author and resolving conflicts commit by commit with the intent of both
 sides. Regenerate generated files such as snapshots with the repository's
@@ -64,7 +68,7 @@ commits on top. Git is configured to commit as the bot. The rebased history
 replaces the PR's branch, with anything you leave uncommitted as one more
 commit on top. Don't rebase a PR that other open PRs are based on, since they
 would be left behind; say in `comment` that the stack needs `bot-rebase`
-instead. Otherwise never rewrite the PR's history.
+instead. Never rewrite the PR's history otherwise.
 
 ## Output
 
